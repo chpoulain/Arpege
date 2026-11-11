@@ -1,0 +1,924 @@
+(function () {
+  'use strict';
+  const C = window.UkuCore; const S = window.UkuScore; const I = window.UkuImport;
+  const $ = (id) => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+  };
+
+  const PRESETS = [
+    { name: 'Montée simple', kind: 'strings', p: '4 3 2 1' },
+    { name: 'Montée-descente', kind: 'strings', p: '4 3 2 1 2 3' },
+    { name: 'Aller-retour sur 8 pas', kind: 'strings', p: '4 3 2 1 2 3 2 3' },
+    { name: 'Picking alterné', kind: 'strings', p: '4 2 3 1 4 2 3 1' },
+    { name: 'Pouce et deux doigts', kind: 'strings', p: '3 2+1 4 2+1' },
+    { name: 'Valse (3/4)', kind: 'strings', p: '3 2+1 2+1' },
+    { name: 'Basse alternée', kind: 'degrees', p: 'T 3 5 3' },
+    { name: 'Accord brisé', kind: 'degrees', p: 'T 3 5 7 5 3' },
+    { name: 'Ballade', kind: 'degrees', p: 'T 5 3 5 7 5 3 5' },
+    { name: 'Bas, bas-haut, haut-bas-haut', kind: 'strum', p: 'b - b h - h b h' },
+    { name: 'Bas-haut régulier', kind: 'strum', p: 'b h b h b h b h' },
+    { name: 'Tout en bas', kind: 'strum', p: 'b - b - b - b -' },
+    { name: 'Campagne', kind: 'strum', p: 'b - b h b - b h' },
+    { name: 'Accents sur 2 et 4', kind: 'strum', p: 'b. h. B h. b. h. B h.' },
+    { name: 'Reggae (contretemps)', kind: 'strum', p: '- B - B - B - B' },
+    { name: 'Coup étouffé', kind: 'strum', p: 'b h x h b h x h' },
+    { name: '3+3+2', kind: 'strum', p: 'B h b H b h B (h)' },
+    { name: 'Hauts courts', kind: 'strum', p: 'b - b h2 - h2 b h2' },
+    { name: 'Pouce et frappe', kind: 'strum', p: 'p h b h t h b h' },
+    { name: 'Coup et doigts', kind: 'strum', p: 'b 2 3 b 2 3 b 2' },
+    { name: 'Hawaïen (double-croches)', kind: 'strum', sub: '16', p: 'b - - - b - h - b h b h - - h -' },
+    { name: 'Valse rythmique (3/4)', kind: 'strum', p: 'b - b h b h' },
+  ];
+
+  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
+  const state = Object.assign({}, defaults, store.get('draft', {}));
+  let score = null;
+  let importedScore = null; // tablature importée : affichée telle quelle, sans générateur
+  let playing = false;
+
+  /* ---------- navigation ---------- */
+  function goto(name) {
+    document.querySelectorAll('.screen').forEach((s) => { s.hidden = s.id !== 'tab-' + name; });
+    document.querySelectorAll('.bottom button').forEach((b) => b.classList.toggle('on', b.dataset.goto === name));
+    window.scrollTo(0, 0);
+    if (name === 'score') drawScore();
+    if (name === 'songs') renderSongs();
+    if (name === 'grid') drawGridPage();
+  }
+  document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.goto)));
+
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 2600);
+  }
+  function setMsg(el, text, cls) {
+    el.textContent = text || ''; el.hidden = !text;
+    el.className = 'msg' + (cls ? ' ' + cls : '');
+  }
+
+  /* ---------- formulaire ---------- */
+  function fillSelects() {
+    $('tuning').innerHTML = '';
+    Object.entries(C.TUNINGS).forEach(([k, t]) => $('tuning').add(new Option(t.label, k)));
+    for (let i = -6; i <= 6; i++) $('transpose').add(new Option(i === 0 ? 'Non' : (i > 0 ? '+' : '−') + Math.abs(i) + ' demi-ton' + (Math.abs(i) > 1 ? 's' : ''), i));
+    const ph = new Option('Choisir…', ''); $('presets').add(ph);
+    [['strings', 'Arpèges par cordes'], ['degrees', 'Arpèges par notes'], ['strum', 'Rythmiques']].forEach(([kind, label]) => {
+      const group = document.createElement('optgroup'); group.label = label;
+      PRESETS.forEach((p, i) => { if (p.kind === kind) group.appendChild(new Option(p.name, i)); });
+      $('presets').appendChild(group);
+    });
+  }
+
+  function syncForm() {
+    $('title').value = state.title; $('chords').value = state.chords; $('pattern').value = state.pattern;
+    ['meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position'].forEach((k) => { $(k).value = state[k]; });
+    $('tempo').value = state.tempo; tempoLabel();
+    $('position-wrap').hidden = state.mode !== 'position';
+    document.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.patternKind));
+    document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === state.view));
+    kindHint(); drawGrid(); checkChords();
+  }
+  function kindHint() {
+    $('kind-hint').textContent = state.patternKind === 'strum'
+      ? 'Touche un pas pour le régler, touche-le encore pour alterner bas, haut, silence. Au clavier : b bas, h haut, B fort, b. doux, (b) à vide, b2 sur 2 cordes, x étouffé, p pouce, t frappe sur le bois, 2 corde pincée, - silence.'
+      : state.patternKind === 'strings'
+      ? 'Chaque pas indique la corde à pincer : 1 = ligne du haut de la tablature, 4 = ligne du bas. 2+1 = ensemble, - = silence.'
+      : 'Chaque pas indique une note de l\'accord : T tonique, 3 tierce, 5 quinte, 7 septième. La corde est trouvée selon le doigté.';
+  }
+  function saveDraft() { store.set('draft', state); }
+
+  ['title', 'chords', 'pattern'].forEach((k) => $(k).addEventListener('input', () => {
+    state[k] = $(k).value;
+    if (k === 'pattern') drawGrid();
+    if (k === 'chords') checkChords();
+    saveDraft();
+  }));
+  ['meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position'].forEach((k) => $(k).addEventListener('change', () => {
+    state[k] = k === 'transpose' || k === 'position' ? +$(k).value : $(k).value;
+    if (k === 'tuning') state.overrides = {};
+    $('position-wrap').hidden = state.mode !== 'position';
+    drawGrid(); saveDraft();
+  }));
+  document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
+    if (state.patternKind === b.dataset.kind) return;
+    state.patternKind = b.dataset.kind;
+    const preset = PRESETS.find((p) => p.kind === state.patternKind);
+    state.pattern = preset.p; $('pattern').value = state.pattern;
+    syncForm(); saveDraft();
+  }));
+  $('presets').addEventListener('change', () => {
+    const p = PRESETS[+$('presets').value];
+    if (!p || $('presets').value === '') return;
+    state.patternKind = p.kind; state.pattern = p.p;
+    if (p.sub) state.subdivision = p.sub; else if (p.kind === 'strum') state.subdivision = '8';
+    syncForm(); saveDraft();
+  });
+  function checkChords() {
+    const r = C.parseChordText(state.chords);
+    if (r.unknown.length) setMsg($('chord-msg'), 'Non reconnu : ' + [...new Set(r.unknown)].join(', '), 'warn');
+    else setMsg($('chord-msg'), r.bars.length ? r.bars.length + ' mesure' + (r.bars.length > 1 ? 's' : '') : '');
+  }
+
+  /* ---------- grille du motif ---------- */
+  function rows() {
+    if (state.patternKind === 'degrees') return [['7', '7'], ['5', '5'], ['3', '3'], ['T', 'T']];
+    const n = C.TUNINGS[state.tuning].names;
+    return [['1', n[3]], ['2', n[2]], ['3', n[1]], ['4', n[0]]];
+  }
+  let strumSel = 0;
+  function strumSteps() { const s = C.parsePattern(state.pattern, 'strum').steps; return s.length ? s : [{ type: 'rest' }]; }
+  function setStrumStep(step) { const s = strumSteps(); s[strumSel] = step; writePattern(s); }
+  function drawStrumGrid() {
+    const steps = strumSteps();
+    strumSel = Math.min(strumSel, steps.length - 1);
+    const g = $('pattern-grid'); g.innerHTML = '';
+    g.style.gridTemplateColumns = 'repeat(' + steps.length + ', 38px)';
+    const stepUnits = state.subdivision === '16' ? 1 : 2;
+    const units = C.METERS[state.meter].units;
+    steps.forEach((st, i) => {
+      const lab = document.createElement('div'); lab.className = 'beatlab';
+      lab.textContent = C.beatLabel((i * stepUnits) % units, state.meter);
+      g.appendChild(lab);
+    });
+    const NS = 'http://www.w3.org/2000/svg';
+    steps.forEach((st, i) => {
+      const b = document.createElement('button'); b.type = 'button';
+      b.className = 'cell stroke' + (i === strumSel ? ' sel' : '');
+      b.setAttribute('aria-label', 'Pas ' + (i + 1) + ' : ' + C.strumToText(st));
+      b.setAttribute('aria-pressed', i === strumSel);
+      const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 36 50'); svg.setAttribute('aria-hidden', 'true');
+      S.drawStroke(svg, 18, 7, 36, st);
+      b.appendChild(svg);
+      b.addEventListener('click', () => {
+        if (i !== strumSel) { strumSel = i; drawGrid(); return; }
+        // Deuxième toucher : alterne bas, haut, silence.
+        const next = st.type === 'stroke' && st.dir === 'down' ? { type: 'stroke', dir: 'up', level: st.level, count: st.count }
+          : st.type === 'stroke' ? { type: 'rest' } : { type: 'stroke', dir: 'down', level: 'normal', count: 4 };
+        setStrumStep(next);
+      });
+      g.appendChild(b);
+    });
+    const cur = steps[strumSel];
+    const stroke = cur.type === 'stroke';
+    const on = (attr, test) => document.querySelectorAll('[' + attr + ']').forEach((x) => {
+      const yes = test(x.getAttribute(attr));
+      x.classList.toggle('on', yes); x.setAttribute('aria-pressed', yes);
+    });
+    on('data-gesture', (v) => ({ down: stroke && cur.dir === 'down', up: stroke && cur.dir === 'up', chunk: cur.type === 'chunk', thumb: cur.type === 'thumb', tap: cur.type === 'tap', rest: cur.type === 'rest' })[v]);
+    on('data-level', (v) => stroke && cur.level === v);
+    on('data-count', (v) => stroke && cur.count === +v);
+    document.querySelectorAll('[data-level],[data-count]').forEach((x) => { x.disabled = !stroke; });
+  }
+  document.querySelectorAll('[data-gesture]').forEach((b) => b.addEventListener('click', () => {
+    const cur = strumSteps()[strumSel];
+    const v = b.dataset.gesture;
+    if (v === 'down' || v === 'up') setStrumStep({ type: 'stroke', dir: v, level: cur.level || 'normal', count: cur.count || 4 });
+    else if (v === 'chunk') setStrumStep(cur.type === 'chunk' ? { type: 'stroke', dir: cur.dir, level: 'normal', count: 4 } : { type: 'chunk', dir: cur.dir || 'down' });
+    else setStrumStep({ type: { thumb: 'thumb', tap: 'tap', rest: 'rest' }[v] });
+  }));
+  document.querySelectorAll('[data-level]').forEach((b) => b.addEventListener('click', () => { const cur = strumSteps()[strumSel]; setStrumStep(Object.assign({}, cur, { level: b.dataset.level })); }));
+  document.querySelectorAll('[data-count]').forEach((b) => b.addEventListener('click', () => { const cur = strumSteps()[strumSel]; setStrumStep(Object.assign({}, cur, { count: +b.dataset.count })); }));
+
+  function drawGrid() {
+    const isStrum = state.patternKind === 'strum';
+    $('strum-tools').hidden = !isStrum;
+    if (isStrum) { drawStrumGrid(); return; }
+    const pat = C.parsePattern(state.pattern, state.patternKind);
+    const g = $('pattern-grid'); g.innerHTML = '';
+    const steps = pat.steps.length ? pat.steps : [[]];
+    g.style.gridTemplateColumns = '30px repeat(' + steps.length + ', 38px)';
+    const perBeat = state.meter === '6/8' ? (state.subdivision === '16' ? 6 : 3) : (state.subdivision === '16' ? 4 : 2);
+    rows().forEach(([tok, label]) => {
+      const lab = document.createElement('div'); lab.className = 'rowlab'; lab.textContent = label; g.appendChild(lab);
+      steps.forEach((st, i) => {
+        const b = document.createElement('button'); b.type = 'button';
+        b.className = 'cell' + (st.includes(tok) ? ' on' : '') + (i % perBeat === 0 ? ' beat' : '');
+        b.setAttribute('aria-label', 'Pas ' + (i + 1) + ', ' + label + (st.includes(tok) ? ', actif' : ''));
+        b.setAttribute('aria-pressed', st.includes(tok));
+        b.addEventListener('click', () => {
+          const cur = C.parsePattern(state.pattern, state.patternKind).steps;
+          if (!cur.length) cur.push([]);
+          cur[i] = cur[i].includes(tok) ? cur[i].filter((x) => x !== tok) : cur[i].concat(tok);
+          writePattern(cur);
+        });
+        g.appendChild(b);
+      });
+    });
+  }
+  function writePattern(steps) {
+    state.pattern = steps.map((s) => (state.patternKind === 'strum' ? C.strumToText(s) : s.length ? s.join('+') : '-')).join(' ');
+    $('pattern').value = state.pattern;
+    drawGrid(); saveDraft();
+  }
+  $('step-plus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind).steps; if (s.length < 32) { s.push(state.patternKind === 'strum' ? { type: 'rest' } : []); writePattern(s); } });
+  $('step-minus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind).steps; if (s.length > 1) { s.pop(); writePattern(s); } });
+
+  /* ---------- génération ---------- */
+  function generate() {
+    state.sections = null; // la page Créer repart d'un motif unique
+    importedScore = null;
+    score = C.buildScore(state);
+    goto('score');
+  }
+  $('generate').addEventListener('click', generate);
+
+  function drawScore() {
+    const has = score && score.bars.length;
+    const showProblems = score && score.problems.length;
+    $('empty-score').hidden = !!has || !!showProblems;
+    $('score-area').hidden = !has && !showProblems;
+    if (showProblems) setMsg($('score-msg'), score.problems.join(' · '), 'warn'); else setMsg($('score-msg'), '');
+    if (!score) return;
+    drawDiagrams();
+    $('score-diagrams-wrap').hidden = !score.bars.some((b) => b.events.some((e) => e.frets));
+    $('score-diagrams').checked = state.scoreDiagrams;
+    // Une fois dans la partition, les diagrammes ne sont pas imprimés une seconde fois au-dessus.
+    $('diagrams').classList.toggle('no-print', state.scoreDiagrams);
+    if ($('lyrics').value !== state.lyrics) $('lyrics').value = state.lyrics;
+    if (state.lyrics.trim()) $('lyrics-box').open = true;
+    try { S.render($('score'), score, state.view, scoreOpts()); }
+    catch (e) { console.error(e); setMsg($('score-msg'), 'Gravure impossible : ' + e.message, 'err'); }
+  }
+  function drawDiagrams() {
+    const box = $('diagrams'); box.innerHTML = '';
+    $('diagram-hint').hidden = !score.voicings.length;
+    score.voicings.forEach((v) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'dia';
+      b.textContent = v.chord.label; b.appendChild(S.diagram(v.frets));
+      b.setAttribute('aria-label', 'Accord ' + v.chord.label + ', doigté ' + v.frets.join(' ') + '. Changer');
+      b.addEventListener('click', () => openSheet(v));
+      box.appendChild(b);
+    });
+  }
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    state.view = b.dataset.view;
+    document.querySelectorAll('[data-view]').forEach((x) => x.classList.toggle('on', x === b));
+    saveDraft(); drawScore();
+  }));
+  function scoreOpts() { return { diagrams: state.scoreDiagrams, lyrics: C.parseLyrics(state.lyrics) }; }
+  let lyricsT;
+  $('lyrics').addEventListener('input', () => {
+    state.lyrics = $('lyrics').value; saveDraft();
+    clearTimeout(lyricsT);
+    lyricsT = setTimeout(() => { if (score && score.bars.length) S.render($('score'), score, state.view, scoreOpts()); }, 250);
+  });
+  $('score-diagrams').addEventListener('change', () => { state.scoreDiagrams = $('score-diagrams').checked; saveDraft(); drawScore(); });
+  let resizeT;
+  window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (!$('tab-score').hidden) drawScore(); }, 150); });
+
+  /* ---------- choix du doigté ---------- */
+  let sheetChord = null;
+  function openSheet(v) {
+    sheetChord = v.chord.label;
+    $('sheet-title').textContent = 'Doigtés de ' + v.chord.label;
+    const list = $('sheet-list'); list.innerHTML = '';
+    C.voicingsFor(v.chord, score.tuning).slice(0, 12).forEach((alt) => {
+      const b = document.createElement('button'); b.type = 'button';
+      b.className = 'dia' + (alt.shape === v.shape ? ' sel' : '');
+      b.textContent = alt.frets.join(' '); b.appendChild(S.diagram(alt.frets));
+      b.addEventListener('click', () => { state.overrides[sheetChord] = alt.shape; applySheet(); });
+      list.appendChild(b);
+    });
+    $('sheet').hidden = false;
+  }
+  function closeSheet() { $('sheet').hidden = true; }
+  function applySheet() { closeSheet(); saveDraft(); score = C.buildScore(state); drawScore(); }
+  $('sheet-close').addEventListener('click', closeSheet);
+  $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
+  $('sheet-auto').addEventListener('click', () => { delete state.overrides[sheetChord]; applySheet(); });
+  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-create').hidden) { goto('create'); return true; } return false; };
+
+  /* ---------- grille d'accords ---------- */
+  const KEYS = { major: ['C', 'D', 'Eb', 'E', 'F', 'G', 'A', 'Bb'], minor: ['A', 'B', 'C', 'D', 'E', 'F#', 'G'] };
+  const MINE = '__mine';
+  function fillModelSelect(sel, withKeep) {
+    sel.innerHTML = '';
+    if (withKeep) sel.add(new Option('Choisir…', ''));
+    sel.add(new Option('Mon motif (page Créer)', MINE));
+    [['strings', 'Arpèges par cordes'], ['degrees', 'Arpèges par notes'], ['strum', 'Rythmiques']].forEach(([kind, label]) => {
+      const group = document.createElement('optgroup'); group.label = label;
+      PRESETS.filter((p) => p.kind === kind).forEach((p) => group.appendChild(new Option(p.name, p.name)));
+      sel.appendChild(group);
+    });
+  }
+  function fillKeys() {
+    const g = state.grid;
+    if (!KEYS[g.mode].includes(g.key)) g.key = KEYS[g.mode][0];
+    $('grid-key').innerHTML = '';
+    KEYS[g.mode].forEach((k) => $('grid-key').add(new Option(k + (g.mode === 'minor' ? 'm' : ''), k)));
+    $('grid-key').value = g.key;
+  }
+  function gridModel(name) {
+    const g = state.grid;
+    if (g.models[name]) return g.models[name];
+    const style = C.GRID_STYLES[g.style];
+    return style.models[name] || style.models.Couplet;
+  }
+  function drawGridPage() {
+    const g = state.grid;
+    $('grid-mode').value = g.mode; fillKeys();
+    $('grid-style').value = g.style; $('grid-form').value = g.form; $('grid-bars').value = String(g.bars); $('grid-perbar').value = String(g.perBar);
+    $('grid-meter').value = state.meter;
+    if ($('grid-text').value !== g.text) $('grid-text').value = g.text;
+    drawGridView();
+  }
+  function drawGridView() {
+    const sections = C.parseGridText(state.grid.text);
+    const view = $('grid-view'); view.innerHTML = '';
+    const unknown = [];
+    sections.forEach((sec) => {
+      const parsed = C.parseChordText(sec.chords);
+      unknown.push(...parsed.unknown);
+      if (sec.name) { const h = document.createElement('div'); h.className = 'grid-name'; h.textContent = sec.name; view.appendChild(h); }
+      const row = document.createElement('div'); row.className = 'grid-bars';
+      parsed.bars.forEach((bar) => {
+        const c = document.createElement('div'); c.className = 'grid-bar';
+        c.textContent = bar.map((x) => x.label).join('  ');
+        row.appendChild(c);
+      });
+      view.appendChild(row);
+    });
+    setMsg($('grid-msg'), unknown.length ? 'Non reconnu : ' + [...new Set(unknown)].join(', ') : '', 'warn');
+    const names = [...new Set(sections.map((s) => s.name))];
+    const box = $('grid-models'); box.innerHTML = '';
+    names.forEach((name) => {
+      const label = document.createElement('label'); label.className = 'inline';
+      const span = document.createElement('span'); span.textContent = name || 'Toute la grille'; label.appendChild(span);
+      const sel = document.createElement('select'); fillModelSelect(sel); sel.value = gridModel(name);
+      sel.dataset.section = name;
+      sel.addEventListener('change', () => { state.grid.models[name] = sel.value; saveDraft(); });
+      label.appendChild(sel); box.appendChild(label);
+    });
+    $('grid-result').hidden = !sections.length;
+  }
+  function proposeGrid() {
+    const g = state.grid;
+    const style = C.GRID_STYLES[g.style];
+    if (style.meter && state.meter !== style.meter) { state.meter = style.meter; $('meter').value = state.meter; }
+    g.text = C.generateGrid(g);
+    g.seed = (g.seed || 0) + 1; // le prochain appui propose un autre enchaînement
+    g.models = {};
+    $('grid-text').value = g.text;
+    drawGridView(); saveDraft();
+  }
+  function sectionFromModel(sec) {
+    const value = gridModel(sec.name);
+    const p = PRESETS.find((x) => x.name === value);
+    const m = p ? { pattern: p.p, patternKind: p.kind, subdivision: p.sub || '8' } : { pattern: state.pattern, patternKind: state.patternKind, subdivision: state.subdivision };
+    return Object.assign({ name: sec.name, chords: sec.chords }, m);
+  }
+  function fillGridSelects() {
+    Object.entries(C.GRID_STYLES).forEach(([k, st]) => $('grid-style').add(new Option(st.label, k)));
+    fillModelSelect($('grid-all'), true);
+  }
+  ['mode', 'style', 'form', 'bars', 'perbar'].forEach((k) => $('grid-' + k).addEventListener('change', () => {
+    const field = k === 'perbar' ? 'perBar' : k;
+    const v = $('grid-' + k).value;
+    state.grid[field] = k === 'bars' || k === 'perbar' ? +v : v;
+    if (k === 'mode') fillKeys();
+    if (k === 'style' && C.GRID_STYLES[v].meter) { state.meter = C.GRID_STYLES[v].meter; $('grid-meter').value = state.meter; $('meter').value = state.meter; }
+    saveDraft();
+  }));
+  $('grid-key').addEventListener('change', () => { state.grid.key = $('grid-key').value; saveDraft(); });
+  $('grid-meter').addEventListener('change', () => { state.meter = $('grid-meter').value; $('meter').value = state.meter; saveDraft(); });
+  $('grid-propose').addEventListener('click', proposeGrid);
+  $('grid-text').addEventListener('input', () => { state.grid.text = $('grid-text').value; drawGridView(); saveDraft(); });
+  $('grid-from-create').addEventListener('click', () => { state.grid.text = state.chords.trim() + '\n'; $('grid-text').value = state.grid.text; drawGridView(); saveDraft(); });
+  $('grid-all').addEventListener('change', () => {
+    const v = $('grid-all').value;
+    if (!v) return;
+    C.parseGridText(state.grid.text).forEach((s) => { state.grid.models[s.name] = v; });
+    $('grid-all').value = ''; drawGridView(); saveDraft();
+  });
+  $('grid-build').addEventListener('click', () => {
+    const sections = C.parseGridText(state.grid.text);
+    if (!sections.length) return;
+    state.sections = sections.map(sectionFromModel);
+    // Les accords restent visibles en page Créer et dans la liste des morceaux.
+    state.chords = sections.map((s) => s.chords.trim()).join('\n'); $('chords').value = state.chords; checkChords();
+    state.overrides = {};
+    importedScore = null;
+    score = C.buildScore(state);
+    saveDraft();
+    goto('score');
+  });
+
+  /* ---------- lecture ---------- */
+  function tempoLabel() { $('tempo-label').textContent = state.tempo + ' à la noire'; }
+  $('tempo').addEventListener('input', () => { state.tempo = +$('tempo').value; tempoLabel(); saveDraft(); });
+  function setPlaying(v) { playing = v; $('play').textContent = v ? '■' : '▶'; $('play').setAttribute('aria-label', v ? 'Arrêter' : 'Écouter'); }
+  $('play').addEventListener('click', () => {
+    if (playing) { S.stop(); setPlaying(false); return; }
+    if (!score || !score.bars.length) return;
+    if (S.play(score, state.tempo, () => setPlaying(false))) setPlaying(true);
+  });
+
+  /* ---------- export ---------- */
+  const D = window.Desktop;
+  const errText = (e) => String((e && e.message) || e).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+  if (D) { $('share').textContent = 'Exporter .txt'; }
+  $('share').addEventListener('click', async () => {
+    if (!score) return;
+    const text = C.scoreToText(Object.assign({}, score, { title: state.title, lyrics: C.parseLyrics(state.lyrics) }));
+    if (D) {
+      try { const p = await D.saveText(state.title || 'Tablature', text); if (p) toast('Enregistré : ' + p); }
+      catch (e) { toast('Écriture impossible : ' + errText(e)); }
+      return;
+    }
+    if (window.Android && window.Android.shareText) { window.Android.shareText(state.title || 'Tablature', text); return; }
+    if (navigator.share) { navigator.share({ title: state.title, text }).catch(() => {}); return; }
+    if (navigator.clipboard) navigator.clipboard.writeText(text).then(() => toast('Tablature copiée'));
+  });
+  /* Pages imprimées : titre en haut, 6 lignes de 4 à 6 mesures selon la mesure, même échelle sur toutes les pages. */
+  const PX_PER_MM = 96 / 25.4; const PAGE_W = 186; const PAGE_H = 266; const LINES_PER_PAGE = 6;
+  function buildPrint() {
+    const host = $('print-pages'); host.innerHTML = '';
+    if (!score || !score.bars.length) return;
+    const perLine = C.printBarsPerLine(score.meter);
+    const all = C.fixedLines(score, perLine);
+    const pages = [];
+    for (let i = 0; i < all.length; i += LINES_PER_PAGE) pages.push(all.slice(i, i + LINES_PER_PAGE));
+    const title = state.title.trim() || 'Tablature';
+    const opts = Object.assign(scoreOpts(), { perLine });
+    const bodies = pages.map((lines, pi) => {
+      const page = document.createElement('section'); page.className = 'page';
+      const head = document.createElement('header'); head.className = 'page-head' + (pi ? ' small' : '');
+      if (pi === 0) {
+        const h = document.createElement('h1'); h.textContent = title; head.appendChild(h);
+        // Sans diagrammes dans la partition, les doigtés sont rappelés sous le titre.
+        if (!state.scoreDiagrams && score.voicings.length) {
+          const row = document.createElement('div'); row.className = 'page-dias';
+          score.voicings.forEach((v) => { const d = document.createElement('div'); d.className = 'dia'; d.textContent = v.chord.label; d.appendChild(S.diagram(v.frets)); row.appendChild(d); });
+          head.appendChild(row);
+        }
+      } else head.textContent = title + ' · ' + (pi + 1) + '/' + pages.length;
+      const body = document.createElement('div'); body.className = 'page-score';
+      page.appendChild(head); page.appendChild(body); host.appendChild(page);
+      return { body, lines };
+    });
+    // La page la plus chargée (la première, avec son titre) fixe l'échelle : 6 lignes doivent y tenir.
+    const headMm = host.querySelector('.page-head').getBoundingClientRect().height / PX_PER_MM;
+    const areaMm = PAGE_H - headMm - 2;
+    const g = S.geometry(score, state.view, Object.assign({ lines: all }, opts));
+    const width = Math.ceil(Math.max((LINES_PER_PAGE * g.lineH + 8) * PAGE_W / areaMm, g.minWidth, 600));
+    bodies.forEach((b) => S.draw(b.body, score, state.view, Object.assign({ lines: b.lines, width }, opts)));
+  }
+  window.addEventListener('beforeprint', buildPrint);
+  $('print').addEventListener('click', async () => {
+    buildPrint();
+    if (D) {
+      try { const p = await D.savePdf(state.title || 'Tablature'); if (p) toast('Enregistré : ' + p); }
+      catch (e) { toast('Écriture impossible : ' + errText(e)); }
+      return;
+    }
+    if (window.Android && window.Android.printPage) window.Android.printPage(state.title || 'Tablature');
+    else window.print();
+  });
+
+  /* ---------- vidéo ---------- */
+  let videoJob = null;
+  function toBase64(bytes) {
+    let s = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  /* Où écrire un fichier binaire (vidéo, Guitar Pro) : boîte « Enregistrer sous » sur PC,
+     dossiers Films ou Téléchargements sur Android, téléchargement dans un navigateur. v : { blob, ext, mime } */
+  function binarySaver() {
+    const A = window.Android;
+    const download = async (name, v) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(v.blob); a.download = name + '.' + v.ext;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+      return a.download;
+    };
+    if (D && D.saveBinary) {
+      return async (name, v) => {
+        try { return await D.saveBinary(name, v.ext, new Uint8Array(await v.blob.arrayBuffer())); } catch (e) {
+          if (!/Format refusé/.test(errText(e))) throw e;
+          return download(name, v); // application PC plus ancienne que ce format : téléchargement ordinaire
+        }
+      };
+    }
+    if (A && A.saveFileBegin) {
+      return async (name, v) => {
+        const begin = A.saveFileBegin(name + '.' + v.ext, v.mime);
+        if (begin) throw new Error(begin);
+        const bytes = new Uint8Array(await v.blob.arrayBuffer());
+        for (let i = 0; i < bytes.length; i += 393216) {
+          const err = A.saveFileChunk(toBase64(bytes.subarray(i, i + 393216)));
+          if (err) throw new Error(err);
+        }
+        const end = JSON.parse(A.saveFileEnd());
+        if (end.error) throw new Error(end.error);
+        return end.path;
+      };
+    }
+    if (A) return null; // application Android trop ancienne : pas d'écriture de fichier
+    return download;
+  }
+  function setVideoProgress(f) {
+    const pct = Math.round(f * 100);
+    $('video-bar').style.width = pct + '%';
+    $('video-progress').setAttribute('aria-valuenow', pct);
+  }
+  $('video').addEventListener('click', async () => {
+    if (!score || !score.bars.length || videoJob) return;
+    if (!window.UkuVideo.supported()) { toast('Vidéo impossible sur cet appareil'); return; }
+    const save = binarySaver();
+    if (!save) { toast('Pour enregistrer des vidéos, installe la dernière version de l\'application'); return; }
+    if (playing) { S.stop(); setPlaying(false); }
+    setVideoProgress(0);
+    $('video-msg').textContent = 'La vidéo s\'enregistre pendant la lecture : garde cette fenêtre ouverte jusqu\'à la fin.';
+    $('video-sheet').hidden = false;
+    videoJob = window.UkuVideo.record(Object.assign({ score, view: state.view, bpm: state.tempo, title: state.title, canvas: $('video-canvas'), onProgress: setVideoProgress }, scoreOpts()));
+    try {
+      const v = await videoJob.promise;
+      if (v) {
+        $('video-msg').textContent = 'Écriture du fichier…';
+        const where = await save(videoName(), v);
+        if (where) toast('Vidéo enregistrée : ' + where);
+      }
+    } catch (e) { toast('Vidéo impossible : ' + errText(e)); }
+    finally { videoJob = null; $('video-sheet').hidden = true; }
+  });
+  function videoName() { return (state.title.trim() || 'Arpege').replace(/[\\/:*?"<>|]+/g, '-'); }
+  $('video-cancel').addEventListener('click', () => { if (videoJob) videoJob.cancel(); });
+
+  /* ---------- Guitar Pro ---------- */
+  $('gpx').addEventListener('click', async () => {
+    if (!score || !score.bars.length) return;
+    const save = binarySaver();
+    if (!save) { toast('Pour enregistrer des fichiers Guitar Pro, installe la dernière version de l\'application'); return; }
+    try {
+      const bytes = await window.UkuGp.exportGp(score, { title: state.title.trim(), tempo: state.tempo, lyrics: C.parseLyrics(state.lyrics) });
+      const where = await save(videoName(), { blob: new Blob([bytes]), ext: 'gp', mime: 'application/x-gtp' });
+      if (where) toast('Fichier Guitar Pro enregistré : ' + where);
+    } catch (e) { toast('Export Guitar Pro impossible : ' + errText(e)); }
+  });
+  /* Paroles d'un fichier : 4 mesures par ligne, « _ » pour une mesure sans paroles. */
+  function lyricsText(list) {
+    const cells = list.slice(); while (cells.length && !cells[cells.length - 1]) cells.pop();
+    const lines = [];
+    for (let i = 0; i < cells.length; i += 4) lines.push(cells.slice(i, i + 4).map((w) => w || '_').join(' | '));
+    return lines.join('\n');
+  }
+  async function openGuitarPro(bytes) {
+    const r = await window.UkuGp.importGp(bytes);
+    if (!r.score.bars.length) throw new Error('aucune mesure dans ce fichier');
+    if (playing) { S.stop(); setPlaying(false); }
+    importedScore = r.score; score = r.score;
+    if (r.title) { state.title = r.title; $('title').value = r.title; }
+    if (r.tempo) { state.tempo = Math.min(180, Math.max(40, r.tempo)); $('tempo').value = state.tempo; tempoLabel(); }
+    state.lyrics = lyricsText(r.lyrics); saveDraft();
+    goto('score');
+    toast('Fichier Guitar Pro importé : ' + r.score.bars.length + ' mesures');
+  }
+
+  /* ---------- morceaux ---------- */
+  /* Sur PC : fichiers dans le dossier choisi. Sur Android et navigateur : stockage interne. */
+  const library = D ? {
+    list: () => D.listSongs(),
+    save: (song, text) => D.saveSong(song, text),
+    remove: (song) => D.removeSong(song.file),
+  } : {
+    list: async () => ({ songs: store.get('songs', []), invalid: 0 }),
+    save: async (song) => {
+      const others = store.get('songs', []).filter((s) => s.title !== song.title);
+      if (!store.set('songs', [Object.assign({ at: Date.now() }, song)].concat(others))) throw new Error('stockage plein');
+    },
+    remove: async (song) => { store.set('songs', store.get('songs', []).filter((s) => s.title !== song.title)); },
+  };
+
+  /* Le morceau affiché, sous la forme enregistrée. */
+  function currentSong() {
+    const item = { title: state.title.trim() };
+    if (importedScore) item.imported = Object.assign({}, importedScore, { lyricsText: state.lyrics }); // gardé aussi par les anciennes versions PC
+    else item.cfg = Object.assign({}, state);
+    return item;
+  }
+  async function saveSong() {
+    if (!score) return;
+    if (!state.title.trim()) { toast('Donne un titre en haut de l\'écran'); $('title').focus(); return; }
+    const item = currentSong();
+    try {
+      await library.save(item, C.scoreToText(Object.assign({}, score, { title: item.title, lyrics: C.parseLyrics(state.lyrics) })));
+      toast('Morceau enregistré');
+    } catch (e) { toast('Enregistrement impossible : ' + errText(e)); }
+  }
+  $('save').addEventListener('click', saveSong);
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's' && !$('tab-score').hidden) { e.preventDefault(); saveSong(); }
+  });
+
+  let songsRender = 0;
+  async function renderSongs() {
+    const ticket = ++songsRender;
+    if (D) await renderStorage();
+    let res;
+    try { res = await library.list(); }
+    catch (e) { res = { songs: [], invalid: 0 }; setMsg($('songs-warning'), 'Dossier illisible : ' + errText(e), 'warn'); }
+    if (ticket !== songsRender) return; // un affichage plus récent a pris le relais
+    if (res.invalid) setMsg($('songs-warning'), res.invalid + ' fichier(s) de morceau illisible(s) ignoré(s) dans le dossier.', 'warn');
+    else if (!$('songs-warning').textContent.startsWith('Dossier')) setMsg($('songs-warning'), '');
+    const ul = $('songs'); ul.innerHTML = '';
+    const list = res.songs;
+    $('no-songs').hidden = !!list.length;
+    list.forEach((song) => {
+      const li = document.createElement('li');
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'song-open';
+      const b = document.createElement('b'); b.textContent = song.title;
+      const sm = document.createElement('small');
+      sm.textContent = song.imported ? 'Tablature importée · ' + song.imported.bars.length + ' mesures' : (song.cfg.chords.replace(/\s+/g, ' ') + ' · ' + song.cfg.pattern);
+      open.append(b, sm);
+      open.addEventListener('click', () => openSong(song));
+      const del = document.createElement('button'); del.type = 'button'; del.className = 'song-del'; del.textContent = 'Supprimer';
+      del.addEventListener('click', async () => {
+        if (!del.classList.contains('confirm')) {
+          del.classList.add('confirm'); del.textContent = 'Confirmer ?';
+          setTimeout(() => { del.classList.remove('confirm'); del.textContent = 'Supprimer'; }, 3000);
+          return;
+        }
+        try { await library.remove(song); } catch (e) { toast('Suppression impossible : ' + errText(e)); }
+        renderSongs();
+      });
+      li.append(open, del); ul.appendChild(li);
+    });
+  }
+
+  function openSong(song) {
+    if (song.imported) { importedScore = song.imported; score = song.imported; state.title = song.title; state.lyrics = song.imported.lyricsText || ''; $('title').value = song.title; }
+    else { Object.assign(state, { sections: null, lyrics: '' }, song.cfg, { title: song.title }); importedScore = null; score = C.buildScore(state); syncForm(); }
+    saveDraft();
+    goto('score');
+  }
+
+  /* ---------- envoi et réception d'un morceau ---------- */
+  // Les liens ouvrent la version web, que l'élève l'ait installée ou non.
+  const WEB_URL = 'https://chpoulain.github.io/Arpege/';
+  const webBase = () => (D || window.Android || !/^https?:$/.test(location.protocol) ? WEB_URL : location.origin + location.pathname);
+  let sending = null;
+  $('send').addEventListener('click', async () => {
+    if (!score || !score.bars.length) return;
+    if (!state.title.trim()) { toast('Donne un titre en haut de l\'écran'); $('title').focus(); return; }
+    sending = C.shareSong(currentSong());
+    let link = '';
+    try { link = webBase() + '#morceau=' + await C.packSong(sending); } catch (e) { link = ''; }
+    const fits = link && link.length <= 6000;
+    $('send-link-box').hidden = !fits; $('send-long').hidden = !!fits;
+    $('send-link').value = fits ? link : '';
+    $('send-share').hidden = !(navigator.share || (window.Android && window.Android.shareText));
+    $('send-title').textContent = 'Envoyer « ' + sending.title + ' »';
+    $('send-sheet').hidden = false;
+  });
+  $('send-close').addEventListener('click', () => { $('send-sheet').hidden = true; });
+  $('send-sheet').addEventListener('click', (e) => { if (e.target === $('send-sheet')) $('send-sheet').hidden = true; });
+  $('send-copy').addEventListener('click', async () => {
+    const input = $('send-link');
+    try { await navigator.clipboard.writeText(input.value); toast('Lien copié'); }
+    catch (e) { input.select(); toast('Sélectionné : copie-le avec Ctrl+C ou un appui long'); }
+  });
+  $('send-share').addEventListener('click', () => {
+    const text = 'Morceau « ' + sending.title + ' » pour Arpège';
+    if (navigator.share) navigator.share({ title: sending.title, text, url: $('send-link').value }).catch(() => {});
+    else window.Android.shareText(sending.title, text + '\n' + $('send-link').value);
+  });
+  $('send-file').addEventListener('click', async () => {
+    const save = binarySaver();
+    if (!save) { toast('Pour enregistrer le fichier, installe la dernière version de l\'application, ou envoie le lien'); return; }
+    try {
+      const blob = new Blob([JSON.stringify(sending)], { type: 'application/json' });
+      const where = await save(videoName(), { blob, ext: 'arpege', mime: 'application/json' });
+      if (where) toast('Fichier enregistré : ' + where);
+    } catch (e) { toast('Enregistrement impossible : ' + errText(e)); }
+  });
+
+  let received = null;
+  function showReceived(song) {
+    received = song;
+    $('receive-title').textContent = 'Morceau reçu : ' + song.title;
+    $('receive-text').textContent = song.cfg
+      ? 'Accords : ' + song.cfg.chords.replace(/\s+/g, ' ').slice(0, 120) + (song.cfg.sections ? ' · ' + song.cfg.sections.length + ' parties' : '')
+      : 'Tablature de ' + song.imported.bars.length + ' mesures.';
+    $('receive-sheet').hidden = false;
+  }
+  $('receive-cancel').addEventListener('click', () => { received = null; $('receive-sheet').hidden = true; });
+  $('receive-add').addEventListener('click', async () => {
+    if (!received) return;
+    const song = received; received = null; $('receive-sheet').hidden = true;
+    // Un morceau du même nom est peut-être la copie modifiée de l'élève : on ne l'écrase pas.
+    let res = { songs: [] };
+    try { res = await library.list(); } catch (e) { /* liste illisible : on enregistre quand même */ }
+    const taken = new Set(res.songs.map((s) => s.title));
+    if (taken.has(song.title)) {
+      const base = song.title + ' (reçu le ' + new Date().toLocaleDateString('fr-FR') + ')';
+      let t = base; let n = 2;
+      while (taken.has(t)) t = base + ' ' + n++;
+      song.title = t; if (song.imported) song.imported.title = t;
+    }
+    try {
+      const sc = song.imported || C.buildScore(Object.assign({}, defaults, song.cfg));
+      const lyr = song.imported ? song.imported.lyricsText : song.cfg.lyrics;
+      await library.save(song, C.scoreToText(Object.assign({}, sc, { title: song.title, lyrics: C.parseLyrics(lyr) })));
+      toast('Ajouté à tes morceaux : ' + song.title);
+    } catch (e) { toast('Enregistrement impossible : ' + errText(e)); }
+    openSong(song);
+  });
+  async function receiveLink(url) {
+    const data = C.songLinkData(url);
+    if (!data) return false;
+    try { showReceived(await C.unpackSong(data)); }
+    catch (e) { toast('Morceau illisible : ' + errText(e)); }
+    return true;
+  }
+  function arpegeFile(bytes) {
+    if (bytes[0] !== 0x7b) return null; // {
+    try { const o = JSON.parse(new TextDecoder().decode(bytes)); return o && o.app === 'arpege' ? C.readSharedSong(o) : null; }
+    catch (e) { if (/Arpège|vide/.test(e.message)) throw e; return null; }
+  }
+
+  /* ---------- stockage sur PC ---------- */
+  let settings = null;
+  async function renderStorage() {
+    settings = await D.getSettings();
+    $('storage').hidden = false;
+    $('storage-folder').textContent = settings.folder;
+    $('opt-txt').checked = settings.writeTxt;
+    $('opt-backups').checked = settings.backups;
+    $('opt-sources').checked = settings.keepSources;
+  }
+  if (D) {
+    const guard = (fn) => async () => { try { await fn(); } catch (e) { toast(errText(e)); } };
+    $('folder-change').addEventListener('click', guard(async () => { await D.chooseFolder(); await renderSongs(); }));
+    $('folder-open').addEventListener('click', guard(() => D.openFolder()));
+    [['opt-txt', 'writeTxt'], ['opt-backups', 'backups'], ['opt-sources', 'keepSources']].forEach(([id, key]) => {
+      $(id).addEventListener('change', guard(async () => { settings = await D.setSettings({ [key]: $(id).checked }); }));
+    });
+    $('zip-export').addEventListener('click', guard(async () => {
+      const r = await D.exportZip();
+      if (r) toast(r.count + ' morceau(x) exporté(s) : ' + r.path);
+    }));
+    $('zip-import').addEventListener('click', guard(async () => {
+      const r = await D.importZip();
+      if (r) { toast(r.imported + ' morceau(x) importé(s)' + (r.skipped ? ', ' + r.skipped + ' ignoré(s)' : '')); renderSongs(); }
+    }));
+  }
+
+  /* ---------- import ---------- */
+  const status = (t, cls) => setMsg($('import-status'), t, cls);
+  function progress(v) { const p = $('import-progress'); p.hidden = v === null; if (v !== null) p.firstElementChild.style.width = Math.round(v * 100) + '%'; }
+  function resetImport() {
+    $('found-links').innerHTML = ''; $('import-result').hidden = true; $('import-preview').hidden = true; progress(null); status('');
+  }
+  function renderRecent() {
+    const ul = $('recent'); ul.innerHTML = '';
+    store.get('recent', []).slice(0, 5).forEach((u) => {
+      const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = u;
+      b.addEventListener('click', () => { $('url').value = u; loadUrl(u); });
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+  function remember(u) { store.set('recent', [u].concat(store.get('recent', []).filter((x) => x !== u)).slice(0, 5)); renderRecent(); }
+
+  async function handleBytes(bytes, contentType, name, baseUrl) {
+    const kind = I.sniff(bytes, contentType, name);
+    if (D && kind !== 'html') {
+      try { await D.saveSource(decodeURIComponent(String(name || 'import').split('/').pop()), bytes); }
+      catch (e) { toast('Copie du fichier source impossible : ' + errText(e)); }
+    }
+    if (window.UkuGp.kindOf(bytes)) { await openGuitarPro(bytes); status(''); return; }
+    const shared = arpegeFile(bytes);
+    if (shared) { status(''); showReceived(shared); return; }
+    if (kind === 'pdf') { status('Les PDF ne sont pas lus pour l\'instant. Utilise un fichier texte ou une image (capture d\'écran de la page).', 'warn'); return; }
+    if (kind === 'html') {
+      const { links, text } = I.parseHtml(bytes, baseUrl);
+      if (links.length) {
+        status(links.length + ' fichier' + (links.length > 1 ? 's' : '') + ' trouvé' + (links.length > 1 ? 's' : '') + ' sur cette page. Choisis-en un :');
+        const ul = $('found-links'); ul.innerHTML = '';
+        links.slice(0, 100).forEach((l) => {
+          const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button'; b.textContent = l.label;
+          b.addEventListener('click', () => { $('url').value = l.href; loadUrl(l.href); });
+          li.appendChild(b); ul.appendChild(li);
+        });
+      }
+      const usable = text && C.detectContent(text, state.meter).type !== 'unknown';
+      if (usable || (text && !links.length)) showText(text, !links.length);
+      else if (!links.length) status('Cette page ne contient ni texte ni fichier exploitable.', 'warn');
+      return;
+    }
+    if (kind === 'image') {
+      const blob = new Blob([bytes]);
+      const img = $('import-preview');
+      if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
+      img.dataset.url = URL.createObjectURL(blob); img.src = img.dataset.url; img.hidden = false;
+      status('Lecture de l\'image…'); progress(0);
+      const res = await I.ocr(blob, progress);
+      progress(null);
+      if (res.staffOnly && !res.text.trim()) {
+        status('Partition sur portée sans noms d\'accords : je ne sais pas encore lire les notes dessinées. Essaie un export MusicXML du morceau, ou une tablature.', 'warn');
+        return;
+      }
+      showText(res.text, true, true);
+      if (res.staffOnly) status('Accords lus au-dessus de la portée. Vérifie-les sur l\'image : les mesures ne sont pas contrôlées.', 'warn');
+      if (res.unread) status(res.unread + ' signe(s) illisible(s) ignoré(s) : compare bien avec l\'image.', 'warn');
+      return;
+    }
+    showText(I.decodeText(bytes), true);
+  }
+
+  let textFromImage = false;
+  function showText(text, clearStatus, fromImage) {
+    textFromImage = !!fromImage;
+    if (clearStatus) status(fromImage ? 'Image lue. Corrige le texte si besoin : l\'OCR peut se tromper.' : '');
+    $('import-text').value = text.trim();
+    $('import-result').hidden = false;
+    detect();
+    if (!$('chord-panel').hidden) $('chord-panel').scrollIntoView({ block: 'nearest' });
+  }
+
+  let lastDetect = null;
+  function showChordPanel(text, note, warn) {
+    $('chord-panel').hidden = false;
+    $('found-chords').value = text;
+    const n = $('chord-note'); n.textContent = note; n.classList.toggle('warn', !!warn);
+  }
+  function detect() {
+    const text = $('import-text').value;
+    lastDetect = C.detectContent(text, state.meter);
+    const found = C.findChords(text, { meter: state.meter, tuning: state.tuning });
+    const el = $('import-detect'); const btn = $('transform');
+    $('chord-panel').hidden = true;
+    btn.hidden = lastDetect.type !== 'tab';
+    if (lastDetect.type === 'tab') setMsg(el, 'Tablature ukulélé détectée : ' + lastDetect.count + ' mesure' + (lastDetect.count > 1 ? 's' : '') + '.');
+    else if (lastDetect.type === 'chords') setMsg(el, 'Grille d\'accords trouvée : ' + lastDetect.count + ' accord' + (lastDetect.count > 1 ? 's' : '') + '.');
+    else {
+      setMsg(el, lastDetect.type === 'unsupported-tab'
+        ? 'Tablature à ' + lastDetect.strings + ' cordes détectée : seules les tablatures à 4 cordes sont converties.'
+        : 'Ni accords ni tablature reconnus. Corrige le texte ci-dessus.', 'warn');
+    }
+    if (found.source === 'written') showChordPanel(found.chordsText, textFromImage ? 'Noms d\'accords lus sur l\'image : compare-les avec elle, un nom peut manquer ou être mal lu.' : 'Noms d\'accords lus dans le fichier.');
+    else if (found.source === 'tab' || found.source === 'score') {
+      const origin = found.source === 'tab' ? 'de la tablature' : 'de la partition';
+      const doubts = found.uncertain.length ? ' À vérifier en priorité : ' + found.uncertain.join(', ') + '.' : '';
+      if (found.melodyOnly) showChordPanel(found.chordsText, 'Simple proposition : ce passage ressemble à une mélodie seule, qui ne donne pas l\'harmonie avec certitude.' + doubts, true);
+      else showChordPanel(found.chordsText, 'Accords déduits des notes ' + origin + ', à écouter et à vérifier. Tonalité probable : ' + found.key + '.' + doubts);
+    }
+  }
+  $('import-text').addEventListener('input', detect);
+  $('transform').addEventListener('click', () => {
+    detect();
+    if (lastDetect.type === 'tab') {
+      importedScore = lastDetect.score; score = importedScore;
+      state.lyrics = ''; saveDraft();
+      goto('score');
+    }
+  });
+  $('use-chords').addEventListener('click', () => {
+    const chords = $('found-chords').value.trim();
+    if (!chords) return;
+    if (lastDetect && lastDetect.title) { state.title = lastDetect.title; $('title').value = lastDetect.title; }
+    state.chords = chords; state.overrides = {};
+    syncForm(); saveDraft(); generate();
+  });
+
+  async function loadUrl(raw) {
+    resetImport();
+    const input = (raw || '').trim();
+    if (C.songLinkData(input)) { await receiveLink(input); return; }
+    if (!input) { status('Colle d\'abord une adresse.', 'warn'); return; }
+    const url = C.directLink(/^[a-z]+:\/\//i.test(input) ? input : 'https://' + input);
+    $('fetch').disabled = true; status('Connexion…');
+    try {
+      const r = await I.fetchRemote(url);
+      status('');
+      remember(input);
+      await handleBytes(r.bytes, r.contentType, new URL(r.finalUrl).pathname, r.finalUrl);
+    } catch (e) {
+      progress(null);
+      status('Lecture impossible : ' + (e.message || e) + '. Vérifie le lien et ta connexion.', 'err');
+    } finally { $('fetch').disabled = false; }
+  }
+  $('fetch').addEventListener('click', () => loadUrl($('url').value));
+  $('url').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); loadUrl($('url').value); } });
+  $('file').addEventListener('change', async () => {
+    const f = $('file').files[0];
+    $('file').value = '';
+    if (!f) return;
+    resetImport();
+    if (f.size > I.MAX_BYTES) { status('Fichier trop volumineux (15 Mo maximum).', 'err'); return; }
+    try { await handleBytes(new Uint8Array(await f.arrayBuffer()), f.type, f.name, location.href); }
+    catch (e) { progress(null); status('Lecture impossible : ' + (e.message || e), 'err'); }
+  });
+
+  fillSelects(); fillGridSelects(); syncForm(); renderRecent(); goto('create');
+  // Lien de morceau ouvert dans la version web : on propose de l'ajouter, puis on nettoie l'adresse.
+  if (C.songLinkData(location.hash)) {
+    const link = location.href;
+    history.replaceState(null, '', location.pathname + location.search);
+    receiveLink(link);
+  }
+  window.__arpegeReady = true; // Sans ce signal, une mise à jour qui plante au démarrage est annulée au lancement suivant.
+})();

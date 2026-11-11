@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob: data:; worker-src 'self' blob:; media-src 'self' blob:">
+<title>Arpège — tablatures ukulélé</title>
+<link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f6b63">
+<link rel="icon" href="icon-512.png">
+<link rel="apple-touch-icon" href="icon-512.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Arpège">
+</head>
+<body>
+<header class="top">
+  <h1>Arpège</h1>
+  <input id="title" class="song-title" placeholder="Titre du morceau" aria-label="Titre du morceau" maxlength="80">
+</header>
+
+<main>
+  <section id="tab-create" class="screen">
+    <label class="field">
+      <span class="lbl">Accords</span>
+      <textarea id="chords" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Am F C G"></textarea>
+      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>x2</code> en fin de ligne répète. Do Ré Mi… acceptés.</span>
+    </label>
+    <p id="chord-msg" class="msg" hidden></p>
+
+    <div class="field">
+      <div class="row-between">
+        <span class="lbl">Motif d'arpège ou de rythme</span>
+        <div class="seg" role="group" aria-label="Type de motif">
+          <button type="button" data-kind="strings">Cordes</button>
+          <button type="button" data-kind="degrees">Notes</button>
+          <button type="button" data-kind="strum">Rythmique</button>
+        </div>
+      </div>
+      <p id="kind-hint" class="hint"></p>
+      <div class="grid-wrap"><div id="pattern-grid" class="pattern-grid"></div></div>
+      <div id="strum-tools" class="strum-tools" hidden>
+        <div class="tool-row" role="group" aria-label="Geste du pas choisi">
+          <button type="button" data-gesture="down">↓ Bas</button>
+          <button type="button" data-gesture="up">↑ Haut</button>
+          <button type="button" data-gesture="chunk">Étouffé</button>
+          <button type="button" data-gesture="thumb">Pouce</button>
+          <button type="button" data-gesture="tap">Frappe</button>
+          <button type="button" data-gesture="rest">Silence</button>
+        </div>
+        <div class="tool-row four" role="group" aria-label="Force du coup">
+          <button type="button" data-level="strong">Fort</button>
+          <button type="button" data-level="normal">Normal</button>
+          <button type="button" data-level="soft">Doux</button>
+          <button type="button" data-level="ghost">À vide</button>
+        </div>
+        <div class="tool-row four" role="group" aria-label="Nombre de cordes touchées">
+          <button type="button" data-count="4">4 cordes</button>
+          <button type="button" data-count="3">3</button>
+          <button type="button" data-count="2">2</button>
+          <button type="button" data-count="1">1</button>
+        </div>
+      </div>
+      <div class="row-between gap">
+        <input id="pattern" class="mono" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Motif en texte">
+        <div class="stepper">
+          <button type="button" id="step-minus" aria-label="Retirer un pas">−</button>
+          <button type="button" id="step-plus" aria-label="Ajouter un pas">+</button>
+        </div>
+      </div>
+      <label class="inline"><span>Motifs prêts</span>
+        <select id="presets"></select>
+      </label>
+    </div>
+
+    <div class="options">
+      <label><span class="lbl">Mesure</span><select id="meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
+      <label><span class="lbl">Valeur d'un pas</span><select id="subdivision"><option value="8">Croche</option><option value="16">Double-croche</option></select></label>
+      <label><span class="lbl">Accordage</span><select id="tuning"></select></label>
+      <label><span class="lbl">Transposer</span><select id="transpose"></select></label>
+      <label><span class="lbl">Doigtés</span><select id="mode"><option value="easy">Les plus simples</option><option value="smooth">Le moins de déplacement</option><option value="position">Autour d'une case</option></select></label>
+      <label id="position-wrap" hidden><span class="lbl">Case visée</span><input id="position" type="number" min="0" max="12" value="5" inputmode="numeric"></label>
+    </div>
+    <button type="button" id="generate" class="cta">Générer la tablature</button>
+  </section>
+
+  <div id="update-banner" class="update-banner" hidden role="status">
+    <span id="update-text"></span>
+    <span class="update-actions"><button type="button" id="update-install" class="btn">Mettre à jour</button> <button type="button" id="update-later" class="btn">Plus tard</button></span>
+  </div>
+
+  <section id="tab-grid" class="screen" hidden>
+    <h2>Grille d'accords</h2>
+    <div class="options">
+      <label><span class="lbl">Mode</span><select id="grid-mode"><option value="major">Majeur</option><option value="minor">Mineur</option></select></label>
+      <label><span class="lbl">Tonalité</span><select id="grid-key"></select></label>
+      <label><span class="lbl">Style</span><select id="grid-style"></select></label>
+      <label><span class="lbl">Structure</span><select id="grid-form"><option value="loop">Une seule grille</option><option value="verseChorus">Couplet, refrain</option><option value="song">Couplet, refrain, deux fois</option><option value="full">Avec un pont</option></select></label>
+      <label><span class="lbl">Mesures par partie</span><select id="grid-bars"><option>4</option><option>8</option></select></label>
+      <label><span class="lbl">Accords par mesure</span><select id="grid-perbar"><option>1</option><option>2</option></select></label>
+      <label><span class="lbl">Mesure</span><select id="grid-meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
+    </div>
+    <button type="button" id="grid-propose" class="cta">Proposer une grille</button>
+    <p class="hint">Chaque appui propose un autre enchaînement.</p>
+    <div id="grid-result" hidden>
+      <div id="grid-view" class="grid-view"></div>
+      <p id="grid-msg" class="msg" hidden></p>
+      <h2>Décliner en arpège ou en rythme</h2>
+      <p class="hint">Choisis un modèle pour chaque partie : un arpège au couplet et un rythme au refrain, par exemple.</p>
+      <label class="inline"><span>Partout</span><select id="grid-all"></select></label>
+      <div id="grid-models"></div>
+      <button type="button" id="grid-build" class="cta gap">Générer la partition</button>
+    </div>
+    <label class="field gap">
+      <span class="lbl">Écrire ou modifier la grille</span>
+      <textarea id="grid-text" class="mono" rows="8" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Couplet]&#10;C | G | Am | F&#10;&#10;[Refrain]&#10;F | C | G | G"></textarea>
+      <span class="hint"><code>[Couplet]</code> ouvre une partie, <code>|</code> sépare les mesures.</span>
+    </label>
+    <button type="button" id="grid-from-create" class="btn">Reprendre les accords de la page Créer</button>
+  </section>
+
+  <section id="tab-import" class="screen" hidden>
+    <h2>Importer depuis Internet</h2>
+    <p class="hint">Colle le lien d'un fichier texte, d'une image, d'une partition MusicXML ou d'une page qui en contient : l'application en cherche aussi les accords. Les liens de partage Google Drive, Dropbox et GitHub sont pris en charge s'ils sont publics.</p>
+    <div class="row-between gap">
+      <input id="url" type="url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://…/mon-morceau.txt" aria-label="Adresse du fichier">
+      <button type="button" id="fetch" class="btn">Lire</button>
+    </div>
+    <ul id="recent" class="link-list"></ul>
+    <div class="or"><span>ou depuis cet appareil</span></div>
+    <label class="btn file-btn">Choisir un fichier ou une image
+      <input id="file" type="file" accept=".arpege,.json,.txt,.text,.cho,.crd,.tab,.pro,.musicxml,.xml,.gpx,.gp,text/*,image/*" hidden>
+    </label>
+
+    <p id="import-status" class="msg" hidden role="status"></p>
+    <div id="import-progress" class="progress" hidden><div></div></div>
+    <ul id="found-links" class="link-list"></ul>
+    <img id="import-preview" alt="Image importée" hidden>
+
+    <div id="import-result" hidden>
+      <label class="field">
+        <span class="lbl">Contenu lu <small>(à vérifier, modifiable)</small></span>
+        <textarea id="import-text" class="mono" rows="10" spellcheck="false" autocapitalize="off"></textarea>
+      </label>
+      <p id="import-detect" class="msg"></p>
+      <div id="chord-panel" class="chord-panel" hidden>
+        <label class="field">
+          <span class="lbl">Accords du morceau <small>(modifiables)</small></span>
+          <textarea id="found-chords" class="mono" rows="3" spellcheck="false" autocapitalize="off"></textarea>
+        </label>
+        <p id="chord-note" class="hint"></p>
+        <button type="button" id="use-chords" class="cta">Générer avec ces accords et mon motif</button>
+      </div>
+      <button type="button" id="transform" class="btn">Transformer en partition</button>
+    </div>
+  </section>
+
+  <section id="tab-score" class="screen" hidden>
+    <div id="empty-score" class="empty">
+      <p>Pas encore de partition.</p>
+      <button type="button" class="btn" data-goto="create">Saisir des accords</button>
+    </div>
+    <div id="score-area" hidden>
+      <div class="row-between toolbar">
+        <div class="seg" role="group" aria-label="Affichage">
+          <button type="button" data-view="both">Les deux</button>
+          <button type="button" data-view="tab">Tablature</button>
+          <button type="button" data-view="notation">Portée</button>
+        </div>
+        <label id="score-diagrams-wrap" class="check"><input id="score-diagrams" type="checkbox"> Diagrammes dans la partition</label>
+      </div>
+      <p id="score-msg" class="msg warn" hidden></p>
+      <div id="diagrams" class="diagrams"></div>
+      <p id="diagram-hint" class="hint">Touche un accord pour choisir un autre doigté.</p>
+      <div id="score" class="score"></div>
+      <details id="lyrics-box" class="lyrics-box no-print">
+        <summary>Paroles</summary>
+        <textarea id="lyrics" rows="6" spellcheck="true" aria-describedby="lyrics-hint" placeholder="Au clair de la | lune, mon ami | Pierrot"></textarea>
+        <p id="lyrics-hint" class="hint">Une ligne par mesure, ou « | » entre les mesures sur une même ligne. « _ » marque une mesure sans paroles. Les lignes [Couplet] et les lignes vides sont ignorées.</p>
+      </details>
+      <div class="play no-print">
+        <button type="button" id="play" class="play-btn" aria-label="Écouter">▶</button>
+        <label class="tempo"><span id="tempo-label">80 à la noire</span>
+          <input id="tempo" type="range" min="40" max="180" value="80" aria-label="Tempo"></label>
+      </div>
+      <div class="actions no-print">
+        <button type="button" id="save" class="btn">Enregistrer</button>
+        <button type="button" id="send" class="btn">Envoyer</button>
+        <button type="button" id="share" class="btn">Partager</button>
+        <button type="button" id="print" class="btn">PDF</button>
+        <button type="button" id="video" class="btn">Vidéo</button>
+        <button type="button" id="gpx" class="btn" title="Fichier pour Guitar Pro 7 et 8, MuseScore, TuxGuitar">Guitar Pro</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="tab-songs" class="screen" hidden>
+    <h2>Mes morceaux</h2>
+    <ul id="songs" class="song-list"></ul>
+    <p id="no-songs" class="empty">Aucun morceau enregistré pour l'instant.</p>
+    <p id="songs-warning" class="msg warn" hidden></p>
+    <div id="storage" class="storage" hidden>
+      <h2>Stockage sur cet ordinateur</h2>
+      <span class="lbl">Dossier des morceaux</span>
+      <p id="storage-folder" class="path mono"></p>
+      <div class="storage-actions">
+        <button type="button" id="folder-change" class="btn">Changer de dossier</button>
+        <button type="button" id="folder-open" class="btn">Ouvrir le dossier</button>
+      </div>
+      <label class="check"><input type="checkbox" id="opt-txt"> Enregistrer aussi la tablature en <code>.txt</code></label>
+      <label class="check"><input type="checkbox" id="opt-backups"> Garder la version précédente de chaque morceau</label>
+      <label class="check"><input type="checkbox" id="opt-sources"> Garder une copie des fichiers importés (dossier <code>sources</code>)</label>
+      <div class="storage-actions">
+        <button type="button" id="zip-export" class="btn">Exporter tout (.zip)</button>
+        <button type="button" id="zip-import" class="btn">Importer un .zip</button>
+      </div>
+    </div>
+    <div id="about" class="about" hidden>
+      <h2>Application</h2>
+      <p class="hint">Version <span id="app-version"></span>. Les mises à jour s'installent sans réinstaller, et tes morceaux ne sont pas touchés.</p>
+      <button type="button" id="update-check" class="btn">Rechercher une mise à jour</button>
+      <p id="update-status" class="msg" hidden role="status"></p>
+    </div>
+  </section>
+</main>
+
+<nav class="bottom" aria-label="Navigation">
+  <button type="button" data-goto="create">Créer</button>
+  <button type="button" data-goto="grid">Grille</button>
+  <button type="button" data-goto="import">Importer</button>
+  <button type="button" data-goto="score">Partition</button>
+  <button type="button" data-goto="songs">Morceaux</button>
+</nav>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="row-between"><h2 id="sheet-title"></h2><button type="button" id="sheet-close" class="btn small">Fermer</button></div>
+    <div id="sheet-list" class="diagrams wrap"></div>
+    <button type="button" id="sheet-auto" class="btn">Laisser l'application choisir</button>
+  </div>
+</div>
+<div id="send-sheet" class="sheet" hidden>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="send-title">
+    <div class="row-between"><h2 id="send-title">Envoyer le morceau</h2><button type="button" id="send-close" class="btn small">Fermer</button></div>
+    <p class="hint">Envoie le lien ou le fichier par mail, messagerie ou Drive. En l'ouvrant, l'élève ajoute le morceau à ses morceaux et peut en changer les accords, les arpèges et les rythmes. Ton original ne change pas.</p>
+    <div id="send-link-box">
+      <label><span class="lbl">Lien du morceau</span><input id="send-link" type="text" readonly></label>
+      <div class="send-actions"><button type="button" id="send-share" class="btn">Partager le lien…</button><button type="button" id="send-copy" class="btn">Copier le lien</button></div>
+    </div>
+    <p id="send-long" class="msg warn" hidden>Morceau trop long pour un lien : envoie le fichier.</p>
+    <button type="button" id="send-file" class="btn">Enregistrer le fichier .arpege</button>
+  </div>
+</div>
+<div id="receive-sheet" class="sheet" hidden>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="receive-title">
+    <h2 id="receive-title">Morceau reçu</h2>
+    <p id="receive-text"></p>
+    <div class="send-actions"><button type="button" id="receive-add" class="btn">Ajouter à mes morceaux</button><button type="button" id="receive-cancel" class="btn">Ne pas l'ajouter</button></div>
+  </div>
+</div>
+<div id="video-sheet" class="sheet" hidden>
+  <div class="sheet-body video-body" role="dialog" aria-modal="true" aria-labelledby="video-title">
+    <h2 id="video-title">Enregistrement de la vidéo</h2>
+    <canvas id="video-canvas" class="video-canvas" aria-label="Aperçu de la vidéo"></canvas>
+    <div class="video-progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="video-progress"><div id="video-bar"></div></div>
+    <p id="video-msg" class="hint">La vidéo s'enregistre pendant la lecture : garde cette fenêtre ouverte jusqu'à la fin.</p>
+    <button type="button" id="video-cancel" class="btn">Annuler</button>
+  </div>
+</div>
+<div id="toast" class="toast" hidden role="status"></div>
+<div id="print-pages" class="print-pages" aria-hidden="true"></div>
+
+<script src="vendor/vexflow.js"></script>
+<script src="core.js"></script>
+<script src="gp.js"></script>
+<script src="score.js"></script>
+<script src="video.js"></script>
+<script src="import.js"></script>
+<script src="app.js"></script>
+<script src="update.js"></script>
+<script src="web.js"></script>
+</body>
+</html>
