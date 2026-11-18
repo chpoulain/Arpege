@@ -471,7 +471,7 @@
   }
 
   /* ---------- Envoi d'un morceau : lien ou fichier .arpege ---------- */
-  const SHARE_CFG = ['chords', 'pattern', 'patternKind', 'meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position', 'overrides', 'tempo', 'sections', 'lyrics', 'scoreDiagrams'];
+  const SHARE_CFG = ['chords', 'pattern', 'patternKind', 'meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position', 'overrides', 'tempo', 'sections', 'lyrics', 'scoreDiagrams', 'scoreNeck', 'scoreNames', 'scoreSolfege'];
   function shareSong(song) {
     const out = { app: 'arpege', v: 1, title: song.title };
     if (song.imported) {
@@ -500,7 +500,7 @@
         meter: own(METERS, c.meter) ? c.meter : '4/4', subdivision: sub(c.subdivision), tuning: own(TUNINGS, c.tuning) ? c.tuning : 'standard',
         transpose: clamp(c.transpose, -6, 6, 0), mode: ['easy', 'smooth', 'position'].includes(c.mode) ? c.mode : 'easy',
         position: clamp(c.position, 0, 12, 5), tempo: clamp(c.tempo, 40, 180, 80), lyrics: clip(c.lyrics, 20000),
-        scoreDiagrams: c.scoreDiagrams === true, overrides: {}, sections: null,
+        scoreDiagrams: c.scoreDiagrams === true, scoreNeck: c.scoreNeck === true, scoreNames: c.scoreNames !== false, scoreSolfege: c.scoreSolfege === true, overrides: {}, sections: null,
       };
       if (c.overrides && typeof c.overrides === 'object') {
         Object.entries(c.overrides).slice(0, 100).forEach(([k, v]) => { if (k.length <= 20 && typeof v === 'string' && /^([0-9a-z]{4}|[0-9a-wx]{6})$/.test(v)) cfg.overrides[k] = v; });
@@ -1148,6 +1148,10 @@
       x2 = x1; x1 = v; y2 = y1; y1 = y; x[n] = y;
     }
   }
+  /* Nom français d'une note (solfège) : Do, Fa♯, Si♭… */
+  const SOLFEGE_SHARP = ['Do', 'Do♯', 'Ré', 'Ré♯', 'Mi', 'Fa', 'Fa♯', 'Sol', 'Sol♯', 'La', 'La♯', 'Si'];
+  const SOLFEGE_FLAT = ['Do', 'Ré♭', 'Ré', 'Mi♭', 'Mi', 'Fa', 'Sol♭', 'Sol', 'La♭', 'La', 'Si♭', 'Si'];
+  function noteName(midi, flats) { return (flats ? SOLFEGE_FLAT : SOLFEGE_SHARP)[((midi % 12) + 12) % 12]; }
   function spell(midi, flats) {
     const pc = ((midi % 12) + 12) % 12;
     const name = (flats ? FLAT : SHARP)[pc];
@@ -1176,7 +1180,7 @@
     return u;
   }
 
-  const api = { TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -181,17 +181,20 @@
       <button type="button" class="btn" data-goto="create">Saisir des accords</button>
     </div>
     <div id="score-area" hidden>
-      <div class="row-between toolbar">
-        <div class="seg" role="group" aria-label="Affichage">
-          <button type="button" data-view="both">Les deux</button>
-          <button type="button" data-view="tab">Tablature</button>
-          <button type="button" data-view="notation">Portée</button>
+      <div class="toolbar no-print">
+        <span class="lbl">Afficher</span>
+        <div class="chips show" role="group" aria-label="Ce que la partition affiche">
+          <button type="button" data-show="staff" title="Les notes sur la portée">Portée</button>
+          <button type="button" data-show="tab" title="Les cases à jouer, corde par corde">Tablature</button>
+          <button type="button" data-show="names" title="Le nom des accords au-dessus des mesures">Accords</button>
+          <button type="button" data-show="diagrams" title="Le diagramme de l'accord à chaque changement">Diagrammes</button>
+          <button type="button" data-show="neck" title="La position des doigts sur le manche, au-dessus de la partition">Manche</button>
+          <button type="button" data-show="solfege" title="Le nom des notes : Do, Ré, Mi…">Solfège</button>
         </div>
-        <label id="score-diagrams-wrap" class="check"><input id="score-diagrams" type="checkbox"> Diagrammes dans la partition</label>
       </div>
       <p id="score-msg" class="msg warn" hidden></p>
       <div id="diagrams" class="diagrams"></div>
-      <p id="diagram-hint" class="hint">Touche un accord pour choisir un autre doigté.</p>
+      <p id="diagram-hint" class="hint">Touche un accord pour choisir un autre doigté. Dans la partition, survole ou touche un accord pour voir la position des doigts.</p>
       <div id="score" class="score"></div>
       <details id="lyrics-box" class="lyrics-box no-print">
         <summary>Paroles</summary>
@@ -314,6 +317,7 @@
     <button type="button" id="video-cancel" class="btn">Annuler</button>
   </div>
 </div>
+<div id="chord-pop" class="chord-pop no-print" hidden role="tooltip"></div>
 <div id="toast" class="toast" hidden role="status"></div>
 <div id="print-pages" class="print-pages" aria-hidden="true"></div>
 

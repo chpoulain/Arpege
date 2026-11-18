@@ -164,3 +164,16 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .chord-photo{display:block;width:100%;max-width:420px;border-radius:10px;margin-top:8px}
 .chord-facts p{margin:.4rem 0;font-size:.9rem}
 #chord-sheet .sheet-body{max-height:92vh;overflow:auto}
+
+.chips.show{flex-wrap:wrap;overflow:visible;padding-bottom:4px}
+.chips.show button{min-height:38px;padding:5px 12px;font-size:.86rem}
+.chips.show button:disabled{opacity:.4}
+.dia.neck{min-width:0;padding:6px 8px}
+.dia.neck svg{width:210px;max-width:60vw;height:auto}
+.page-dias .dia.neck svg{width:42mm;max-width:none}
+.chord-hit{cursor:help}
+.chord-pop{position:fixed;z-index:15;width:min(300px,calc(100vw - 16px));background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px 6px;box-shadow:0 6px 24px rgba(35,33,28,.22);pointer-events:none}
+.chord-pop b{display:block;color:var(--accent);margin-bottom:2px}
+.chord-pop svg{display:block;width:100%;height:auto}
+.chord-pop small{display:block;color:var(--muted);font-size:.78rem;margin-top:2px}
+@media (max-width:430px){.bottom button{font-size:.7rem;letter-spacing:-.01em}}

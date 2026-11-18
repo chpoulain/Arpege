@@ -38,7 +38,7 @@
     const flats = !!score.preferFlats;
     const N = stringsOf(score);
     const staffShift = C.TUNINGS[score.tuning] ? C.TUNINGS[score.tuning].staff : 0; // guitare : écrite une octave plus haut
-    const staffNotes = []; const tabNotes = []; const labels = []; const strokes = []; const marks = [];
+    const staffNotes = []; const tabNotes = []; const labels = []; const strokes = []; const marks = []; const solfege = [];
     const barAcc = new Map(); // altérations déjà écrites dans la mesure, par note + octave
     const pushRest = (seg) => {
       const n = new VF.StaveNote({ keys: ['b/4'], duration: seg.value + 'r', dots: seg.dots, auto_stem: true });
@@ -80,6 +80,9 @@
       });
       if (seg.dots) VF.Dot.buildAndAttach([sn], { all: true });
       if (ev.chord) labels.push({ index: staffNotes.length, text: ev.chord, frets: ev.frets });
+      // Solfège : le nom de la note sous chaque note jouée seule (un accord plaqué en porterait trop).
+      const alone = ev.notes.filter((n) => !n.muted);
+      if (alone.length === 1) solfege.push({ index: staffNotes.length, text: C.noteName(C.midiOf(alone[0], score.tuning), flats) });
       staffNotes.push(sn);
       const positions = ev.notes.map((n) => ({ str: N - n.string, fret: n.muted ? 'X' : n.fret })).sort((a, b) => a.str - b.str);
       const tn = new VF.TabNote({ positions, duration: seg.value, dots: seg.dots }, false);
@@ -88,7 +91,7 @@
       t = ev.start + ev.dur;
     }
     if (t < units) pushGap(units - t);
-    return { staffNotes, tabNotes, labels, strokes, marks };
+    return { staffNotes, tabNotes, labels, strokes, marks, solfege };
   }
 
   function layoutBars(score, width, withDiagrams) {
@@ -126,10 +129,12 @@
     const bottom = showTab ? tabOffset + 52 + 39 + tabExtra : 112 + lowExtra + strumExtra;
     const sectionExtra = score.bars.some((b) => b.section) ? 16 : 0; // place du nom de la partie
     const lyricsExtra = withLyrics ? 22 : 0;
-    const lineH = 12 + bottom + 26 + sectionExtra + diagramExtra + lyricsExtra;
+    const withSolfege = !!opts.solfege && score.bars.some((b) => b.events.some((e) => e.notes.filter((n) => !n.muted).length === 1));
+    const solfegeExtra = withSolfege ? 15 : 0; // ligne des noms de notes, sous la tablature
+    const lineH = 12 + bottom + 26 + sectionExtra + diagramExtra + lyricsExtra + solfegeExtra;
     const { needs } = layoutBars(score, 1e6, withDiagrams);
     const minWidth = opts.lines ? Math.max(...opts.lines.map((l) => 92 + l.reduce((s, i) => s + needs[i], 0))) : 0;
-    return { showStaff, showTab, withDiagrams, lyrics, diagramExtra, lowExtra, hasStrum, tabOffset, sectionExtra, lineH, minWidth, strings: N };
+    return { showStaff, showTab, withDiagrams, lyrics, diagramExtra, lowExtra, hasStrum, tabOffset, sectionExtra, lineH, minWidth, strings: N, withSolfege, solfegeExtra, names: opts.names !== false };
   }
 
   /* Écran : la partition se cale sur la largeur disponible et garde le surlignage de la lecture. */
@@ -163,6 +168,13 @@
     svg.style.width = '100%'; svg.style.height = 'auto';
     const meter = C.METERS[score.meter];
     // Surlignage de la note jouée : premier élément du dessin, donc derrière les notes.
+    /* Zone sensible posée sur un accord : au survol ou au toucher, l'application y affiche la position des doigts. */
+    const hit = (x, y, w, h, l) => {
+      if (!l.frets) return;
+      const r = document.createElementNS(SVG_NS, 'rect');
+      [['class', 'chord-hit'], ['x', x], ['y', y], ['width', w], ['height', h], ['fill', '#000'], ['fill-opacity', 0], ['stroke', 'none'], ['pointer-events', 'all'], ['data-chord', l.text], ['data-frets', l.frets.join(',')]].forEach(([k, v]) => r.setAttribute(k, v));
+      svg.appendChild(r);
+    };
     const cursorEl = document.createElementNS(SVG_NS, 'rect');
     [['class', 'no-print'], ['display', 'none'], ['rx', 3], ['fill', '#5f5b52'], ['fill-opacity', 0.2]].forEach(([k, v]) => cursorEl.setAttribute(k, v));
     svg.insertBefore(cursorEl, svg.firstChild);
@@ -223,7 +235,7 @@
           }
           ctx.restore();
         }
-        const { staffNotes, tabNotes, labels, strokes, marks: barMarks } = buildNotes(score.bars[barIdx], score, VF);
+        const { staffNotes, tabNotes, labels, strokes, marks: barMarks, solfege } = buildNotes(score.bars[barIdx], score, VF);
         const mk = (notes) => new VF.Voice({ num_beats: meter.beats, beat_value: meter.value }).setMode(VF.Voice.Mode.SOFT).addTickables(notes);
         const vStaff = showStaff ? mk(staffNotes) : null;
         const vTab = showTab ? mk(tabNotes) : null;
@@ -244,9 +256,10 @@
           labels.forEach((l) => {
             const left = Math.min(Math.max(refNotes[l.index].getAbsoluteX() + 5 - DIAGRAM_W / 2, diagramRight), width - DIAGRAM_W);
             drawChordBox(svg, left, yTop - diagramExtra + 8, l.text, l.frets);
+            hit(left, yTop - diagramExtra - 4, DIAGRAM_W, 80, l);
             diagramRight = left + DIAGRAM_W + 2;
           });
-        } else {
+        } else if (g.names) {
           ctx.save();
           ctx.setFont('Arial', 13, 'bold');
           ctx.setFillStyle('#0f6b63');
@@ -255,12 +268,19 @@
             ctx.fillText(l.text, n.getAbsoluteX() - 4, yTop + 12);
           });
           ctx.restore();
+          labels.forEach((l) => hit(refNotes[l.index].getAbsoluteX() - 8, yTop - 4, Math.max(30, l.text.length * 9 + 10), 22, l));
         }
         const bandTop = tab ? tab.getYForLine(0) - 58 : staff.getYForLine(4) + 36 + lowExtra;
         const markTop = staff ? staff.getYForLine(0) - 6 : (hasStrum ? bandTop - 4 : tab.getYForLine(0) - 6);
         const markBottom = tab ? tab.getYForLine(N - 1) + 6 : (hasStrum ? bandTop + 46 : staff.getYForLine(4) + 6 + lowExtra);
         marks[barIdx] = barMarks.map((i) => ({ x: refNotes[i].getAbsoluteX() + 5, line: li, top: markTop, bottom: markBottom }));
-        if (lyrics[barIdx]) drawLyric(svg, lyrics[barIdx], noteStart, markBottom + 17, (x + w) - noteStart - 8);
+        if (g.withSolfege) solfege.forEach((sf) => {
+          const t = document.createElementNS(SVG_NS, 'text');
+          [['x', refNotes[sf.index].getAbsoluteX() + 5], ['y', markBottom + 12], ['text-anchor', 'middle'], ['font-family', 'Arial, sans-serif'], ['font-size', 10], ['fill', '#0f6b63'], ['stroke', 'none']].forEach(([k, v]) => t.setAttribute(k, v));
+          t.textContent = sf.text;
+          svg.appendChild(t);
+        });
+        if (lyrics[barIdx]) drawLyric(svg, lyrics[barIdx], noteStart, markBottom + 17 + g.solfegeExtra, (x + w) - noteStart - 8);
         strokes.forEach((st) => {
           const cx = refNotes[st.index].getAbsoluteX() + 5;
           drawStroke(svg, cx, bandTop, 30, st.strum, N);

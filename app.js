@@ -36,7 +36,7 @@
     { name: 'Valse rythmique (3/4)', kind: 'strum', p: 'b - b h b h' },
   ];
 
-  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
+  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
   const state = Object.assign({}, defaults, store.get('draft', {}));
   if (!Object.prototype.hasOwnProperty.call(C.TUNINGS, state.tuning)) state.tuning = 'standard';
   /* L'instrument se déduit de l'accordage : rien d'autre à enregistrer dans un morceau. */
@@ -129,7 +129,6 @@
     $('tempo').value = state.tempo; tempoLabel();
     $('position-wrap').hidden = state.mode !== 'position';
     document.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.patternKind));
-    document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === state.view));
     kindHint(); drawGrid(); checkChords();
   }
   function kindHint() {
@@ -317,8 +316,7 @@
     if (showProblems) setMsg($('score-msg'), score.problems.join(' · '), 'warn'); else setMsg($('score-msg'), '');
     if (!score) return;
     drawDiagrams();
-    $('score-diagrams-wrap').hidden = !score.bars.some((b) => b.events.some((e) => e.frets));
-    $('score-diagrams').checked = state.scoreDiagrams;
+    syncShow();
     // Une fois dans la partition, les diagrammes ne sont pas imprimés une seconde fois au-dessus.
     $('diagrams').classList.toggle('no-print', state.scoreDiagrams);
     if ($('lyrics').value !== state.lyrics) $('lyrics').value = state.lyrics;
@@ -331,25 +329,65 @@
     $('diagram-hint').hidden = !score.voicings.length;
     score.voicings.forEach((v) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'dia';
-      b.textContent = v.chord.label; b.appendChild(S.diagram(v.frets));
+      b.textContent = v.chord.label;
+      // « Manche » : la position des doigts sur le manche remplace le petit diagramme.
+      if (state.scoreNeck) { b.classList.add('neck'); b.appendChild(K.neckView(v.frets, score.tuning)); } else b.appendChild(S.diagram(v.frets));
       b.setAttribute('aria-label', 'Accord ' + v.chord.label + ', doigté ' + shapeText(v.frets) + '. Changer');
       b.addEventListener('click', () => openSheet(v));
       box.appendChild(b);
     });
   }
-  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
-    state.view = b.dataset.view;
-    document.querySelectorAll('[data-view]').forEach((x) => x.classList.toggle('on', x === b));
+  /* Ce que la partition affiche : portée, tablature, noms d'accords, diagrammes, manche, solfège. */
+  const shown = () => ({ staff: state.view !== 'tab', tab: state.view !== 'notation', names: state.scoreNames !== false, diagrams: !!state.scoreDiagrams, neck: !!state.scoreNeck, solfege: !!state.scoreSolfege });
+  function syncShow() {
+    const on = shown();
+    const hasShapes = !!score && score.bars.some((b) => b.events.some((e) => e.frets));
+    document.querySelectorAll('[data-show]').forEach((b) => {
+      const k = b.dataset.show;
+      b.classList.toggle('on', on[k]); b.setAttribute('aria-pressed', on[k]);
+      b.disabled = (k === 'diagrams' || k === 'neck') && !hasShapes; // tablature importée : pas de doigtés d'accords
+    });
+  }
+  document.querySelectorAll('[data-show]').forEach((b) => b.addEventListener('click', () => {
+    const k = b.dataset.show; const on = shown();
+    if (k === 'staff' || k === 'tab') {
+      on[k] = !on[k];
+      if (!on.staff && !on.tab) on[k === 'staff' ? 'tab' : 'staff'] = true; // il reste toujours l'une des deux
+      state.view = on.staff && on.tab ? 'both' : on.tab ? 'tab' : 'notation';
+    } else state[{ names: 'scoreNames', diagrams: 'scoreDiagrams', neck: 'scoreNeck', solfege: 'scoreSolfege' }[k]] = !on[k];
     saveDraft(); drawScore();
   }));
-  function scoreOpts() { return { diagrams: state.scoreDiagrams, lyrics: C.parseLyrics(state.lyrics) }; }
+  function scoreOpts() { return { diagrams: state.scoreDiagrams, names: state.scoreNames !== false, solfege: !!state.scoreSolfege, lyrics: C.parseLyrics(state.lyrics) }; }
+
+  /* Position des doigts d'un accord de la partition : au survol à la souris, au toucher sur un écran tactile. */
+  const pop = $('chord-pop'); let popFor = null;
+  function showPop(target) {
+    const frets = target.dataset.frets.split(',').map(Number);
+    if (!score || frets.length !== C.stringCount(score.tuning)) return;
+    pop.innerHTML = '';
+    const title = document.createElement('b'); title.textContent = target.dataset.chord; pop.appendChild(title);
+    pop.appendChild(K.neckView(frets, score.tuning));
+    const sm = document.createElement('small'); sm.textContent = 'Cases, du grave à l\'aigu : ' + shapeText(frets); pop.appendChild(sm);
+    pop.hidden = false; popFor = target;
+    const r = target.getBoundingClientRect(); const w = pop.offsetWidth; const h = pop.offsetHeight;
+    const left = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), window.innerWidth - w - 8);
+    const top = r.bottom + 8 + h < window.innerHeight - 70 ? r.bottom + 8 : Math.max(8, r.top - h - 8);
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  }
+  function hidePop() { pop.hidden = true; popFor = null; }
+  $('score').addEventListener('pointerover', (e) => { if (e.pointerType === 'mouse' && e.target.classList && e.target.classList.contains('chord-hit')) showPop(e.target); });
+  $('score').addEventListener('pointerout', (e) => { if (e.pointerType === 'mouse' && e.target === popFor) hidePop(); });
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    if (t.classList && t.classList.contains('chord-hit')) { if (popFor === t && !pop.hidden) hidePop(); else showPop(t); } else if (!pop.hidden) hidePop();
+  });
+  window.addEventListener('scroll', () => { if (!pop.hidden) hidePop(); }, { passive: true });
   let lyricsT;
   $('lyrics').addEventListener('input', () => {
     state.lyrics = $('lyrics').value; saveDraft();
     clearTimeout(lyricsT);
     lyricsT = setTimeout(() => { if (score && score.bars.length) S.render($('score'), score, state.view, scoreOpts()); }, 250);
   });
-  $('score-diagrams').addEventListener('change', () => { state.scoreDiagrams = $('score-diagrams').checked; saveDraft(); drawScore(); });
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (!$('tab-score').hidden) drawScore(); }, 150); });
 
@@ -532,9 +570,9 @@
       if (pi === 0) {
         const h = document.createElement('h1'); h.textContent = title; head.appendChild(h);
         // Sans diagrammes dans la partition, les doigtés sont rappelés sous le titre.
-        if (!state.scoreDiagrams && score.voicings.length) {
+        if ((state.scoreNeck || !state.scoreDiagrams) && score.voicings.length) {
           const row = document.createElement('div'); row.className = 'page-dias';
-          score.voicings.forEach((v) => { const d = document.createElement('div'); d.className = 'dia'; d.textContent = v.chord.label; d.appendChild(S.diagram(v.frets)); row.appendChild(d); });
+          score.voicings.forEach((v) => { const d = document.createElement('div'); d.className = 'dia' + (state.scoreNeck ? ' neck' : ''); d.textContent = v.chord.label; d.appendChild(state.scoreNeck ? K.neckView(v.frets, score.tuning) : S.diagram(v.frets)); row.appendChild(d); });
           head.appendChild(row);
         }
       } else head.textContent = title + ' · ' + (pi + 1) + '/' + pages.length;

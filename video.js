@@ -50,7 +50,7 @@
       let dest = null; let rec = null;
       try {
         const perLine = C.printBarsPerLine(o.score.meter);
-        const shot = S.draw(host, o.score, o.view, { lines: C.fixedLines(o.score, perLine), perLine, width: W - 2 * PAD, diagrams: o.diagrams, lyrics: o.lyrics });
+        const shot = S.draw(host, o.score, o.view, { lines: C.fixedLines(o.score, perLine), perLine, width: W - 2 * PAD, diagrams: o.diagrams, lyrics: o.lyrics, names: o.names, solfege: o.solfege });
         const raster = await rasterize(shot.svg, shot.width, shot.height);
         host.remove();
         if (cancelled) return null;
