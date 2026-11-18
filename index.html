@@ -33,10 +33,12 @@
 <main>
   <section id="tab-grid" class="screen">
     <h2>Les accords du morceau</h2>
+    <div class="grid-layout">
+      <div class="grid-main">
     <label class="field">
       <span class="lbl">Grille d'accords</span>
       <textarea id="chords" class="mono" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Couplet]&#10;Am F | C G&#10;&#10;[Refrain]&#10;F | C | G | G"></textarea>
-      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>x2</code> en fin de ligne répète. <code>[Couplet]</code> ouvre une partie, qui pourra avoir son propre arpège ou rythme. Do Ré Mi… acceptés.</span>
+      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>| Am - F C |</code> : le tiret prolonge l'accord, ici Am une demi-mesure puis F et C un quart chacun. <code>x2</code> en fin de ligne répète. <code>[Couplet]</code> ouvre une partie. Do Ré Mi… acceptés.</span>
     </label>
     <p id="chord-msg" class="msg" hidden></p>
     <div id="grid-view" class="grid-view"></div>
@@ -57,6 +59,18 @@
       <button type="button" id="grid-propose" class="btn">Proposer une grille</button>
       <p class="hint">La proposition remplace la grille écrite au-dessus. Chaque appui propose un autre enchaînement, avec un arpège ou un rythme adapté au style.</p>
     </details>
+      </div>
+      <aside class="palette" aria-label="Accords à ajouter">
+        <span class="lbl">Ajouter un accord en le touchant</span>
+        <div id="pal-dur" class="seg" role="group" aria-label="Durée de l'accord ajouté"></div>
+        <select id="pal-source" aria-label="Accords proposés"></select>
+        <div id="pal-chords" class="diagrams wrap"></div>
+        <div class="pal-actions">
+          <button type="button" id="pal-undo" class="btn" title="Retire le dernier accord ajouté">Annuler</button>
+          <select id="pal-part" aria-label="Ouvrir une nouvelle partie"><option value="">Nouvelle partie…</option><option>Intro</option><option>Couplet</option><option>Refrain</option><option>Pont</option><option>Final</option></select>
+        </div>
+      </aside>
+    </div>
     <button type="button" id="generate-grid" class="cta">Générer la partition</button>
     <button type="button" class="btn wide gap" data-goto="create">Choisir l'arpège ou le rythme</button>
   </section>
@@ -132,7 +146,7 @@
   </div>
 
   <section id="tab-chords" class="screen" hidden>
-    <h2 id="chords-title">Accords</h2>
+    <div class="row-between"><h2 id="chords-title">Accords</h2><button type="button" id="chord-make" class="btn">Créer un accord</button></div>
     <p id="chords-tuning" class="hint"></p>
     <div id="chords-roots" class="chips" role="group" aria-label="Choisir une note"></div>
     <div id="chords-list" class="chord-list"></div>
@@ -282,10 +296,28 @@
     <div class="send-actions">
       <button type="button" id="chord-play" class="btn">▶ Écouter l'accord</button>
       <button type="button" id="chord-arp" class="btn">▶ Corde après corde</button>
-      <button type="button" id="chord-use" class="btn">Ajouter à mes accords</button>
+      <button type="button" id="chord-use" class="btn">Ajouter à la grille</button>
+      <button type="button" id="chord-delete" class="btn" hidden>Retirer de mes accords</button>
     </div>
     <span class="lbl gap">Autres positions</span>
     <div id="chord-alts" class="diagrams wrap"></div>
+  </div>
+</div>
+<div id="maker-sheet" class="sheet" hidden>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="maker-title">
+    <div class="row-between"><h2 id="maker-title">Créer un accord</h2><button type="button" id="maker-close" class="btn small">Fermer</button></div>
+    <p class="hint">Touche une case pour y poser un doigt, touche-la encore pour l'enlever. À la guitare, « vide » alterne entre corde à vide (○) et corde non jouée (×).</p>
+    <div class="grid-wrap"><div id="maker-board" class="maker-board"></div></div>
+    <div class="chord-detail">
+      <div id="maker-figure" class="chord-figure"></div>
+      <div class="chord-side"><p id="maker-name" class="maker-name" role="status"></p><p id="maker-alt" class="hint"></p></div>
+    </div>
+    <div class="send-actions">
+      <button type="button" id="maker-play" class="btn">▶ Écouter</button>
+      <button type="button" id="maker-clear" class="btn">Tout effacer</button>
+      <button type="button" id="maker-keep" class="btn">Garder dans mes accords</button>
+      <button type="button" id="maker-use" class="btn">Ajouter à la grille</button>
+    </div>
   </div>
 </div>
 <div id="send-sheet" class="sheet" hidden>

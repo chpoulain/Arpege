@@ -17,6 +17,12 @@
     { name: 'Pouce et deux doigts', kind: 'strings', p: '3 2+1 4 2+1', g: 'B 2+1 4 2+1' },
     { name: 'Basse et accord pincé', kind: 'strings', only: 'guitar', p: 'B 3+2+1 B 3+2+1' },
     { name: 'Valse (3/4)', kind: 'strings', p: '3 2+1 2+1', g: 'B 3+2+1 3+2+1' },
+    { name: 'Valse lente, une basse et deux pincés (3/4)', kind: 'strings', p: '4 - 2+1 - 2+1 -', g: 'B - 3+2+1 - 3+2+1 -' },
+    { name: 'Valse arpégée, montée (3/4)', kind: 'strings', p: '4 3 2 1 2 1', g: 'B 4 3 2 1 2' },
+    { name: 'Valse, basse et pincés alternés (3/4)', kind: 'strings', p: '4 3 2+1 3 2+1 3', g: 'B 3 2+1 3 2+1 3' },
+    { name: 'Valse, basse puis aigus (3/4)', kind: 'strings', p: '4 - 1 2 1 2', g: 'B - 1 2 3 2' },
+    { name: 'Valse par notes, tonique et quinte (3/4)', kind: 'degrees', p: 'T - 3 - 5 -' },
+    { name: 'Valse par notes, arpège (3/4)', kind: 'degrees', p: 'T 5 3 5 3 5' },
     { name: 'Basse alternée', kind: 'degrees', p: 'T 3 5 3' },
     { name: 'Accord brisé', kind: 'degrees', p: 'T 3 5 7 5 3' },
     { name: 'Ballade', kind: 'degrees', p: 'T 5 3 5 7 5 3 5' },
@@ -34,6 +40,13 @@
     { name: 'Coup et doigts', kind: 'strum', p: 'b 2 3 b 2 3 b 2' },
     { name: 'Hawaïen (double-croches)', kind: 'strum', sub: '16', p: 'b - - - b - h - b h b h - - h -' },
     { name: 'Valse rythmique (3/4)', kind: 'strum', p: 'b - b h b h' },
+    { name: 'Valse simple, trois temps (3/4)', kind: 'strum', p: 'B - b. - b. -' },
+    { name: 'Valse, pouce puis accords (3/4)', kind: 'strum', p: 'p - b - b -' },
+    { name: 'Valse, pouce et allers-retours (3/4)', kind: 'strum', p: 'p - b h b h' },
+    { name: 'Valse musette (3/4)', kind: 'strum', p: 'B - b h b -' },
+    { name: 'Valse étouffée (3/4)', kind: 'strum', p: 'B - x - x -' },
+    { name: 'Valse, hauts courts (3/4)', kind: 'strum', p: 'B - h2 - h2 -', g: 'B - h3 - h3 -' },
+    { name: 'Berceuse (6/8)', kind: 'strum', p: 'B - h b - h' },
   ];
 
   const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
@@ -56,7 +69,7 @@
     window.scrollTo(0, 0);
     if (name === 'score') drawScore();
     if (name === 'songs') renderSongs();
-    if (name === 'grid') drawGridPage();
+    if (name === 'grid') { drawGridPage(); drawPalette(); }
     if (name === 'chords') K.render(state.tuning);
   }
   document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.goto)));
@@ -131,7 +144,7 @@
     $('tempo').value = state.tempo; tempoLabel();
     $('position-wrap').hidden = state.mode !== 'position';
     document.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.patternKind));
-    kindHint(); drawGrid(); checkChords(); drawGridPage();
+    kindHint(); drawGrid(); checkChords(); drawGridPage(); fillDurations(); drawPalette();
   }
   function kindHint() {
     $('kind-hint').textContent = state.patternKind === 'strum'
@@ -153,6 +166,7 @@
   ['meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position'].forEach((k) => $(k).addEventListener('change', () => {
     state[k] = k === 'transpose' || k === 'position' ? +$(k).value : $(k).value;
     if (k === 'tuning') state.overrides = {};
+    if (k === 'meter') fillDurations();
     $('position-wrap').hidden = state.mode !== 'position';
     drawGrid(); saveDraft();
   }));
@@ -179,11 +193,10 @@
   K.init();
   K.onListen = () => { if (playing) setPlaying(false); };
   K.onUse = (label, shape) => {
-    state.chords = (state.chords.trim() ? state.chords.trim() + ' ' : '') + label;
-    state.overrides[label] = shape; state.sections = null;
-    $('chords').value = state.chords; checkChords(); saveDraft();
-    drawGridView(); toast(label + ' ajouté à la grille');
+    addFromPalette({ label, shape, custom: true }); // la position choisie dans la fiche est gardée
+    toast(label + ' ajouté à la grille');
   };
+  K.onKeep = (label) => toast(label + ' gardé dans « Mes accords »');
   document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
     if (state.patternKind === b.dataset.kind) return;
     state.patternKind = b.dataset.kind;
@@ -196,6 +209,9 @@
     if (!p || $('presets').value === '') return;
     state.patternKind = p.kind; state.pattern = p.p;
     if (p.sub) state.subdivision = p.sub; else if (p.kind === 'strum') state.subdivision = '8';
+    // Un motif de valse ou en 6/8 règle aussi la mesure du morceau.
+    const mm = /\((3\/4|6\/8)\)$/.exec(p.name);
+    if (mm && state.meter !== mm[1]) { state.meter = mm[1]; fillDurations(); toast('Mesure réglée sur ' + mm[1]); }
     syncForm(); saveDraft();
   });
   /* Les parties de la grille : [Couplet] en ouvre une. Sans titre, tout le morceau est une seule partie. */
@@ -422,7 +438,7 @@
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
   $('sheet-auto').addEventListener('click', () => { delete state.overrides[sheetChord]; applySheet(); });
-  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-grid').hidden) { goto('grid'); return true; } return false; };
+  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isMakerOpen()) { K.closeMaker(); return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-grid').hidden) { goto('grid'); return true; } return false; };
 
   /* ---------- grille d'accords ---------- */
   const KEYS = { major: ['C', 'D', 'Eb', 'E', 'F', 'G', 'A', 'Bb'], minor: ['A', 'B', 'C', 'D', 'E', 'F#', 'G'] };
@@ -461,8 +477,14 @@
       if (sec.name) { const h = document.createElement('div'); h.className = 'grid-name'; h.textContent = sec.name; view.appendChild(h); }
       const row = document.createElement('div'); row.className = 'grid-bars';
       parsed.bars.forEach((bar) => {
+        // Chaque accord occupe dans la case une largeur proportionnelle à sa durée.
         const c = document.createElement('div'); c.className = 'grid-bar';
-        c.textContent = bar.map((x) => x.label).join('  ');
+        bar.forEach((x, i) => {
+          if (x.held) return;
+          let span = 1; while (bar[i + span] && bar[i + span].held) span++;
+          const slot = document.createElement('div'); slot.className = 'slot'; slot.style.flex = span + ' 1 0'; slot.textContent = x.label;
+          c.appendChild(slot);
+        });
         row.appendChild(c);
       });
       view.appendChild(row);
@@ -485,7 +507,7 @@
   function proposeGrid() {
     const g = state.grid;
     const style = C.GRID_STYLES[g.style];
-    if (style.meter && state.meter !== style.meter) { state.meter = style.meter; $('meter').value = state.meter; }
+    if (style.meter && state.meter !== style.meter) { state.meter = style.meter; $('meter').value = state.meter; fillDurations(); }
     state.chords = C.generateGrid(g).trim();
     g.seed = (g.seed || 0) + 1; // le prochain appui propose un autre enchaînement
     // Le style propose un motif pour chaque partie ; il se change en page Motif.
@@ -518,6 +540,82 @@
     if (!v) return;
     songSections().forEach((s) => { state.grid.models[s.name] = v; });
     $('grid-all').value = ''; drawGridView(); saveDraft();
+  });
+
+  /* ---------- palette : construire la grille en touchant les accords ---------- */
+  /* Une mesure se découpe en « temps » : 4 en 4/4, 3 en 3/4, 2 en 2/4 et en 6/8. */
+  const slotsPerBar = () => ({ '4/4': 4, '3/4': 3, '2/4': 2, '6/8': 2 })[state.meter] || 4;
+  const durations = () => ({
+    '4/4': [['Mesure', 4], ['½', 2], ['¼', 1]], '3/4': [['Mesure', 3], ['1 temps', 1]], '2/4': [['Mesure', 2], ['½', 1]], '6/8': [['Mesure', 2], ['½', 1]],
+  })[state.meter] || [['Mesure', 4]];
+  let palSlots = 0; let pal = null; const palHistory = [];
+  function fillDurations(keep) {
+    const box = $('pal-dur'); box.innerHTML = '';
+    const list = durations();
+    if (!list.some(([, n]) => n === palSlots)) palSlots = list[0][1];
+    list.forEach(([label, n]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = label;
+      b.classList.toggle('on', n === palSlots); b.setAttribute('aria-pressed', n === palSlots);
+      b.title = n === slotsPerBar() ? 'L\'accord dure toute la mesure' : 'L\'accord dure ' + label + ' de la mesure';
+      b.addEventListener('click', () => { palSlots = n; fillDurations(true); });
+      box.appendChild(b);
+    });
+    if (!keep) pal = null; // la mesure du morceau a changé : la prochaine mesure repart à zéro
+  }
+  /* Écriture d'une mesure : « Am » si un seul accord, « Am F » pour deux moitiés, sinon temps par temps avec des tirets. */
+  function barText(tokens) {
+    const S = slotsPerBar();
+    const t = tokens.concat(new Array(Math.max(0, S - tokens.length)).fill('-')); // mesure en cours : le dernier accord tient jusqu'au bout
+    if (t.slice(1).every((x) => x === '-')) return t[0];
+    if (S === 4 && t[1] === '-' && t[3] === '-' && t[2] !== '-') return t[0] + ' ' + t[2];
+    return t.join(' ');
+  }
+  function setChords(text) {
+    state.chords = text; $('chords').value = text;
+    checkChords(); drawGridView(); saveDraft();
+  }
+  function addFromPalette(c) {
+    palHistory.push(state.chords); if (palHistory.length > 100) palHistory.shift();
+    const S = slotsPerBar();
+    if (!pal || pal.text !== state.chords) { const base = state.chords.replace(/\s+$/, ''); pal = { base: base ? base + '\n' : '', bars: [] }; }
+    let cur = pal.bars[pal.bars.length - 1];
+    if (!cur || cur.length + palSlots > S) {
+      if (pal.bars.length === 4) { pal.base = pal.text + '\n'; pal.bars = []; } // quatre mesures par ligne
+      cur = []; pal.bars.push(cur);
+    }
+    cur.push(c.label, ...new Array(palSlots - 1).fill('-'));
+    pal.text = pal.base + '| ' + pal.bars.map(barText).join(' | ') + ' |';
+    if (c.custom) state.overrides[c.label] = c.shape; // un accord créé garde sa position
+    setChords(pal.text);
+  }
+  function drawPalette() {
+    const sel = $('pal-source');
+    if (!sel.options.length) K.paletteSources().forEach(([title, items]) => {
+      const g = document.createElement('optgroup'); g.label = title;
+      items.forEach(([value, label]) => g.appendChild(new Option(label, value)));
+      sel.appendChild(g);
+    });
+    if (state.palette && [...sel.options].some((o) => o.value === state.palette)) sel.value = state.palette;
+    const box = $('pal-chords'); box.innerHTML = '';
+    const list = K.paletteChords(sel.value, state.tuning);
+    list.forEach((c) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'dia';
+      b.textContent = c.label; b.appendChild(S.diagram(c.frets));
+      b.setAttribute('aria-label', 'Ajouter ' + c.label + ' à la grille');
+      b.addEventListener('click', () => addFromPalette(c));
+      box.appendChild(b);
+    });
+    if (!list.length) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'Aucun accord créé pour cet instrument : onglet Accords, « Créer un accord ».'; box.appendChild(p); }
+  }
+  $('pal-source').addEventListener('change', () => { state.palette = $('pal-source').value; saveDraft(); drawPalette(); });
+  $('pal-undo').addEventListener('click', () => { if (!palHistory.length) { toast('Rien à annuler'); return; } pal = null; setChords(palHistory.pop()); });
+  $('pal-part').addEventListener('change', () => {
+    const name = $('pal-part').value; $('pal-part').value = '';
+    if (!name) return;
+    palHistory.push(state.chords); pal = null;
+    const base = state.chords.replace(/\s+$/, '');
+    setChords((base ? base + '\n\n' : '') + '[' + name + ']\n');
+    $('chords').focus();
   });
 
   /* ---------- lecture ---------- */

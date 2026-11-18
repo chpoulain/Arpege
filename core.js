@@ -135,7 +135,8 @@
       for (const g of groups) {
         const chords = [];
         for (const tok of g.trim().split(/\s+/).filter(Boolean)) {
-          if (tok === '-' || tok === '/' || tok === '%') { if (chords.length) chords.push(chords[chords.length - 1]); continue; }
+          // « - » prolonge l'accord précédent : « Am - F C » = Am une demi-mesure, puis F et C un quart chacun.
+          if (tok === '-' || tok === '/' || tok === '%') { if (chords.length) chords.push(Object.assign({}, chords[chords.length - 1], { held: true })); continue; }
           const c = parseChord(tok);
           if (c) chords.push(c); else unknown.push(tok);
         }
@@ -246,6 +247,12 @@
       if (pinned) {
         const v = all.find((x) => x.shape === pinned);
         if (v) return [v];
+        // Position créée à la main : elle n'est pas dans la liste calculée, on la prend telle quelle.
+        const n = stringCount(opts.tuning);
+        if (pinned.length === n && /^[0-9a-wx]+$/.test(pinned)) {
+          const frets = pinned.split('').map((c) => (c === 'x' ? -1 : parseInt(c, 36)));
+          if (frets.some((f) => f >= 0)) return [{ frets, cost: 0, shape: pinned }];
+        }
       }
       let list;
       if (mode === 'position') {
@@ -392,8 +399,8 @@
     if (sections.some((s) => !s.pat.steps.length)) problems.push('Le motif est vide.');
     const score = { title: cfg.title || '', meter: cfg.meter in METERS ? cfg.meter : '4/4', tuning: tuningKey, bars: [], voicings: [], problems, source: 'generated' };
     if (!sections.some((s) => s.parsed.bars.length) || sections.some((s) => !s.pat.steps.length)) return score;
-    sections.forEach((s) => { s.bars = s.parsed.bars.map((b) => b.map((c) => transposeChord(c, cfg.transpose || 0))); });
-    const flat = sections.flatMap((s) => s.bars.flat());
+    sections.forEach((s) => { s.bars = s.parsed.bars.map((b) => b.map((c) => (c.held ? { held: true } : transposeChord(c, cfg.transpose || 0)))); });
+    const flat = sections.flatMap((s) => s.bars.flat().filter((c) => !c.held));
     let voicings;
     try { voicings = chooseVoicings(flat, { mode: cfg.mode, position: cfg.position, tuning: tuningKey, overrides: cfg.overrides }); }
     catch (e) { problems.push(e.message); return score; }
@@ -405,10 +412,12 @@
       const stepsPerBar = Math.floor(meter.units / stepUnits);
       const events = [];
       chords.forEach((chord, ci) => {
+        if (chord.held) return; // déjà compté dans la durée de l'accord qu'il prolonge
+        let span = 1; while (chords[ci + span] && chords[ci + span].held) span++;
         const v = voicings[idx++];
         if (!seen.has(chord.label)) { seen.add(chord.label); score.voicings.push({ chord, frets: v.frets, shape: v.shape }); }
         const startStep = Math.round(ci * stepsPerBar / chords.length);
-        const endStep = Math.round((ci + 1) * stepsPerBar / chords.length);
+        const endStep = Math.round((ci + span) * stepsPerBar / chords.length);
         for (let s = startStep; s < endStep; s++) {
           const tok = pat.steps[(s - startStep) % pat.steps.length];
           const label = s === startStep ? chord.label : null;
@@ -1148,6 +1157,31 @@
       x2 = x1; x1 = v; y2 = y1; y1 = y; x[n] = y;
     }
   }
+  /* Nom d'un accord posé à la main sur le manche. La note la plus grave décide entre deux lectures possibles
+     (Do6 ou La mineur 7) ; si elle n'est pas la fondamentale, l'accord est écrit avec sa basse (C/E). */
+  const NAME_ORDER = ['', 'm', '7', 'm7', 'maj7', '6', 'm6', 'sus4', 'sus2', '7sus4', 'add9', '9', 'm9', 'dim', 'dim7', 'm7b5', 'aug', '5'];
+  const ROOT_NAMES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+  function nameChord(frets, tuningKey) {
+    const t = tuningOf(tuningKey); const guitar = t.midi.length > 4;
+    const notes = []; frets.forEach((f, i) => { if (f >= 0) notes.push(t.midi[i] + f - (t.capo || 0)); });
+    const pcs = [...new Set(notes.map((m) => m % 12))];
+    if (pcs.length < 2) return { label: null, alternatives: [], count: pcs.length };
+    const bass = Math.min(...notes) % 12;
+    const found = [];
+    for (let r = 0; r < 12; r++) NAME_ORDER.forEach((q, rank) => {
+      const set = QUALITY[q].iv.map((i) => (r + i) % 12);
+      if (!pcs.includes(r) || !pcs.every((p) => set.includes(p))) return;
+      const missing = set.filter((p) => !pcs.includes(p));
+      // Seule la quinte peut manquer, et seulement dans un accord de quatre sons ou plus.
+      if (missing.length > 1 || (missing.length === 1 && (set.length < 4 || missing[0] !== (r + 7) % 12))) return;
+      // Au ukulélé, la corde grave ne fait pas une basse : l'accord garde son nom simple.
+      const slash = guitar && r !== bass;
+      found.push({ label: ROOT_NAMES[r] + q + (slash ? '/' + ROOT_NAMES[bass] : ''), missing: missing.length, score: missing.length * 2 + (r === bass ? 0 : guitar ? 1 : 0.05) + rank * 0.1 });
+    });
+    found.sort((a, b) => a.score - b.score);
+    if (found.length && !found[0].missing) found.splice(0, found.length, ...found.filter((x) => !x.missing)); // lecture exacte trouvée : pas de lecture incomplète en plus
+    return { label: found.length ? found[0].label : null, alternatives: found.slice(1, 4).map((x) => x.label), count: pcs.length };
+  }
   /* Nom français d'une note (solfège) : Do, Fa♯, Si♭… */
   const SOLFEGE_SHARP = ['Do', 'Do♯', 'Ré', 'Ré♯', 'Mi', 'Fa', 'Fa♯', 'Sol', 'Sol♯', 'La', 'La♯', 'Si'];
   const SOLFEGE_FLAT = ['Do', 'Ré♭', 'Ré', 'Mi♭', 'Mi', 'Fa', 'Sol♭', 'Sol', 'La♭', 'La', 'Si♭', 'Si'];
@@ -1180,7 +1214,7 @@
     return u;
   }
 
-  const api = { noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
