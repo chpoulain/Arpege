@@ -1,7 +1,7 @@
 {
   "name": "Arpège",
   "short_name": "Arpège",
-  "description": "Tablatures ukulélé : accords, arpèges et rythmiques",
+  "description": "Tablatures ukulélé et guitare : accords, arpèges et rythmiques",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",

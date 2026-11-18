@@ -123,7 +123,8 @@
   /* ---------- Lecture d'une partition GPIF ---------- */
   const VALUE_UNITS = { Whole: 16, Half: 8, Quarter: 4, Eighth: 2, '16th': 1, '32nd': 0.5, '64th': 0.25, '128th': 0.125 };
 
-  function readGpif(xml) {
+  /* prefer : nombre de cordes de l'instrument choisi (4 ou 6) ; la piste qui lui correspond est lue en priorité. */
+  function readGpif(xml, prefer) {
     const gpif = kid(parseXml(xml), 'GPIF');
     if (!gpif) throw new Error('partition Guitar Pro illisible');
     const byId = (list, name) => { const map = new Map(); kids(kid(gpif, list), name).forEach((e) => map.set(e.attrs.id, e)); return map; };
@@ -136,25 +137,33 @@
       for (const holder of trackProps(t)) { const p = prop(holder, 'Tuning'); if (p) return txt(kid(p, 'Pitches')).split(/\s+/).map(Number).filter((x) => !Number.isNaN(x)); }
       return [];
     };
-    const index = tracks.findIndex((t) => pitchesOf(t).length === 4);
+    const find = (n) => tracks.findIndex((t) => pitchesOf(t).length === n);
+    const wanted = prefer === 6 ? [6, 4] : [4, 6];
+    const index = find(wanted[0]) >= 0 ? find(wanted[0]) : find(wanted[1]);
     if (index < 0) {
       const counts = [...new Set(tracks.map((t) => pitchesOf(t).length).filter(Boolean))];
-      throw new Error('aucune piste de ukulélé (4 cordes) dans ce fichier' + (counts.length ? ' : pistes à ' + counts.join(', ') + ' cordes' : ''));
+      throw new Error('aucune piste de ukulélé (4 cordes) ni de guitare (6 cordes) dans ce fichier' + (counts.length ? ' : pistes à ' + counts.join(', ') + ' cordes' : ''));
     }
     const track = tracks[index];
     const pitches = pitchesOf(track);
+    const N = pitches.length;
     const problems = [];
-    let tuning = Object.keys(C.TUNINGS).find((k) => C.TUNINGS[k].midi.join() === pitches.join());
-    if (!tuning) { tuning = 'standard'; problems.push('Accordage ' + pitches.join(' ') + ' inconnu : la tablature est gardée telle quelle, sur l\'accordage standard.'); }
+    // Capodastre : les cases écrites se comptent à partir de lui.
+    let capo = 0;
+    trackProps(track).forEach((holder) => { const p = prop(holder, 'CapoFret'); if (p) capo = Math.max(capo, +txt(kid(p, 'Fret')) || 0); });
+    const sounding = pitches.map((x) => x + capo);
+    let tuning = Object.keys(C.TUNINGS).find((k) => C.TUNINGS[k].midi.join() === sounding.join()) || Object.keys(C.TUNINGS).find((k) => C.TUNINGS[k].midi.join() === pitches.join());
+    if (!tuning) { tuning = N === 6 ? 'guitar' : 'standard'; problems.push('Accordage ' + pitches.join(' ') + ' inconnu : la tablature est gardée telle quelle, sur l\'accordage standard.'); }
     // Diagrammes d'accords de la piste.
     const chords = new Map();
     trackProps(track).forEach((holder) => ['DiagramCollection', 'ChordCollection'].forEach((n) => {
       const p = prop(holder, n);
       kids(kid(p, 'Items'), 'Item').forEach((item) => {
         const d = kid(item, 'Diagram'); let frets = null;
-        if (d && +(d.attrs.stringCount || 0) === 4) {
-          const base = +(d.attrs.baseFret || 0); frets = [0, 0, 0, 0];
-          kids(d, 'Fret').forEach((f) => { const s = +f.attrs.string; if (s >= 0 && s < 4) frets[s] = base + +f.attrs.fret; });
+        if (d && +(d.attrs.stringCount || 0) === N) {
+          // Guitare : une corde absente du diagramme n'est pas jouée.
+          const base = +(d.attrs.baseFret || 0); frets = new Array(N).fill(N > 4 ? -1 : 0);
+          kids(d, 'Fret').forEach((f) => { const s = +f.attrs.string; if (s >= 0 && s < N) frets[s] = base + +f.attrs.fret; });
         }
         chords.set(item.attrs.id, { name: item.attrs.name || '', frets });
       });
@@ -195,7 +204,7 @@
             const muted = !!prop(n, 'Muted') || !!prop(n, 'Dead');
             return { string: +txt(kid(prop(n, 'String'), 'String')), fret: muted ? 0 : +txt(kid(prop(n, 'Fret'), 'Fret')), ...(muted ? { muted: true } : {}) };
           })
-          .filter((n) => n.string >= 0 && n.string < 4 && !Number.isNaN(n.fret));
+          .filter((n) => n.string >= 0 && n.string < N && !Number.isNaN(n.fret));
         const ev = { start, dur: Math.min(end, units) - start, notes: ns };
         const chordEl = kid(beat, 'Chord');
         const chord = chordEl && chords.get(txt(chordEl));
@@ -220,7 +229,7 @@
     return { score, lyrics, tempo, title: titleText };
   }
 
-  async function importGp(bytes) { return readGpif(await gpifOf(bytes)); }
+  async function importGp(bytes, prefer) { return readGpif(await gpifOf(bytes), prefer); }
 
   /* ---------- Écriture d'un fichier Guitar Pro 7/8 (.gp) ----------
      Même structure que les fichiers ouverts sans erreur par Guitar Pro 8 (modèle : exportateur d'alphaTab). */
@@ -251,6 +260,9 @@
   function writeGpif(score, o) {
     o = o || {};
     const tuning = C.TUNINGS[score.tuning] || C.TUNINGS.standard;
+    const N = tuning.midi.length; const guitar = N > 4;
+    const capo = tuning.capo || 0;
+    const staffShift = tuning.staff || 0; // guitare : écrite une octave au-dessus du son
     const units = C.METERS[score.meter].units;
     const lyrics = o.lyrics || [];
     const rhythms = []; const rhythmIds = new Map();
@@ -269,11 +281,11 @@
       if (!chordIds.has(key)) {
         const id = 'c' + String(chordIds.size).padStart(2, '0');
         chordIds.set(key, id);
-        const f = frets || [0, 0, 0, 0];
+        const f = frets && frets.length === N ? frets : new Array(N).fill(0);
         const fretted = f.filter((x) => x > 0); const top = fretted.length ? Math.max(...fretted) : 0;
-        const base = top > 5 && f.every((x) => x > 0) ? Math.min(...fretted) - 1 : 0;
-        diagrams.push('<Item id="' + id + '" name="' + esc(name) + '"><Diagram stringCount="4" fretCount="' + Math.max(5, top - base) + '" baseFret="' + base + '" barStates="1 1 1 1">'
-          + f.map((x, s) => '<Fret string="' + s + '" fret="' + (x - base) + '"/>').join('')
+        const base = top > 5 && f.every((x) => x !== 0) ? Math.min(...fretted) - 1 : 0;
+        diagrams.push('<Item id="' + id + '" name="' + esc(name) + '"><Diagram stringCount="' + N + '" fretCount="' + Math.max(5, top - base) + '" baseFret="' + base + '" barStates="' + new Array(N).fill(1).join(' ') + '">'
+          + f.map((x, s) => (x < 0 ? '' : '<Fret string="' + s + '" fret="' + (x - base) + '"/>')).join('')
           + '<Fingering/><Property name="ShowName" type="bool" value="true"/><Property name="ShowDiagram" type="bool" value="' + (frets ? 'true' : 'false') + '"/><Property name="ShowFingering" type="bool" value="true"/>'
           + chordXml(name) + '</Diagram></Item>');
       }
@@ -290,7 +302,7 @@
           const midi = tuning.midi[n.string] + (n.fret || 0);
           ids.push(notesXml.length);
           notesXml.push('<Note id="' + notesXml.length + '"><Properties>'
-            + '<Property name="ConcertPitch">' + pitchXml(midi) + '</Property><Property name="TransposedPitch">' + pitchXml(midi) + '</Property>'
+            + '<Property name="ConcertPitch">' + pitchXml(midi) + '</Property><Property name="TransposedPitch">' + pitchXml(midi + staffShift) + '</Property>'
             + '<Property name="String"><String>' + n.string + '</String></Property><Property name="Fret"><Fret>' + (n.fret || 0) + '</Fret></Property>'
             + '<Property name="Midi"><Number>' + midi + '</Number></Property>'
             + (n.muted ? '<Property name="Muted"><Enable/></Property>' : '') + '</Properties><InstrumentArticulation>0</InstrumentArticulation></Note>');
@@ -325,7 +337,8 @@
         + '<Bars>' + bi + '</Bars></MasterBar>');
     });
     const title = o.title || score.title || '';
-    const sound = 'Midi/24;Ukulele;Factory';
+    const soundName = guitar ? 'Steel Guitar' : 'Ukulele'; const program = guitar ? 25 : 24;
+    const sound = 'Midi/' + program + ';' + soundName + ';Factory';
     const allWords = lyrics.filter(Boolean).join(' ');
     const diagramSet = (n) => '<Property name="' + n + '"><Items>' + diagrams.join('') + '</Items></Property>';
     return '<?xml version="1.0" encoding="utf-8"?>\n<GPIF><GPVersion>8.1.3</GPVersion><GPRevision required="12024" recommended="13000">13007</GPRevision><Encoding><EncodingDescription>GP8</EncodingDescription></Encoding>'
@@ -335,19 +348,19 @@
       + '<FirstPageHeader>' + cdata('') + '</FirstPageHeader><FirstPageFooter>' + cdata('') + '</FirstPageFooter><PageHeader>' + cdata('') + '</PageHeader><PageFooter>' + cdata('') + '</PageFooter>'
       + '<ScoreSystemsDefaultLayout>' + cdata('4') + '</ScoreSystemsDefaultLayout><ScoreSystemsLayout>' + cdata('') + '</ScoreSystemsLayout><ScoreZoomPolicy>Value</ScoreZoomPolicy><ScoreZoom>1</ScoreZoom><MultiVoice>0</MultiVoice></Score>'
       + '<MasterTrack><Tracks>0</Tracks><Automations><Automation><Type>Tempo</Type><Linear>false</Linear><Bar>0</Bar><Position>0</Position><Visible>true</Visible><Value>' + (o.tempo || 80) + ' 2</Value></Automation></Automations></MasterTrack>'
-      + '<AudioTracks/><Tracks><Track id="0"><Name>' + cdata('Ukulélé') + '</Name><ShortName>' + cdata('Uke') + '</ShortName><Color>15 107 99</Color>'
+      + '<AudioTracks/><Tracks><Track id="0"><Name>' + cdata(guitar ? 'Guitare' : 'Ukulélé') + '</Name><ShortName>' + cdata(guitar ? 'Guit.' : 'Uke') + '</ShortName><Color>15 107 99</Color>'
       + '<SystemsDefautLayout>3</SystemsDefautLayout><SystemsLayout></SystemsLayout><AutoBrush/><PalmMute>0</PalmMute><PlayingStyle>StringedPick</PlayingStyle><UseOneChannelPerString/><IconId>1</IconId>'
       + '<InstrumentSet><Name>Steel Guitar</Name><Type>steelGuitar</Type><LineCount>5</LineCount><Elements><Element><Name>Pitched</Name><Type>pitched</Type><SoundbankName></SoundbankName><Articulations><Articulation><Name></Name><StaffLine>0</StaffLine><Noteheads>noteheadBlack noteheadHalf noteheadWhole</Noteheads><TechniquePlacement>outside</TechniquePlacement><TechniqueSymbol></TechniqueSymbol><InputMidiNumbers></InputMidiNumbers><OutputRSESound></OutputRSESound><OutputMidiNumber>0</OutputMidiNumber></Articulation></Articulations></Element></Elements></InstrumentSet>'
-      + '<Transpose><Chromatic>0</Chromatic><Octave>0</Octave></Transpose><RSE><ChannelStrip version="E56"><Parameters>0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 1 0.5 0.5 0.9375 0.5 0.5 0.5</Parameters></ChannelStrip></RSE><ForcedSound>-1</ForcedSound>'
+      + '<Transpose><Chromatic>0</Chromatic><Octave>' + (staffShift ? -1 : 0) + '</Octave></Transpose><RSE><ChannelStrip version="E56"><Parameters>0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 0.5 1 0.5 0.5 0.9375 0.5 0.5 0.5</Parameters></ChannelStrip></RSE><ForcedSound>-1</ForcedSound>'
       + '<MidiConnection><Port>1</Port><PrimaryChannel>0</PrimaryChannel><SecondaryChannel>1</SecondaryChannel><ForeOneChannelPerString>false</ForeOneChannelPerString></MidiConnection>'
       + '<PlaybackState>Default</PlaybackState><AudioEngineState>MIDI</AudioEngineState>'
       + (allWords ? '<Lyrics dispatched="true"><Line><Text>' + cdata(allWords) + '</Text><Offset>' + firstLyricBar + '</Offset></Line></Lyrics>' : '')
-      + '<Staves><Staff><Properties><Property name="CapoFret"><Fret>0</Fret></Property><Property name="FretCount"><Fret>18</Fret></Property>'
-      + '<Property name="Tuning"><Pitches>' + tuning.midi.join(' ') + '</Pitches><Label>' + cdata(tuning.label) + '</Label><LabelVisible>true</LabelVisible><Instrument>Bass</Instrument></Property>'
-      + '<Property name="PartialCapoFret"><Fret>0</Fret></Property><Property name="PartialCapoStringFlags"><Bitset>0000</Bitset></Property>'
+      + '<Staves><Staff><Properties><Property name="CapoFret"><Fret>' + capo + '</Fret></Property><Property name="FretCount"><Fret>18</Fret></Property>'
+      + '<Property name="Tuning"><Pitches>' + tuning.midi.map((m) => m - capo).join(' ') + '</Pitches><Label>' + cdata(capo ? C.TUNINGS.guitar.label : tuning.label) + '</Label><LabelVisible>true</LabelVisible><Instrument>' + (guitar ? 'Guitar' : 'Bass') + '</Instrument></Property>'
+      + '<Property name="PartialCapoFret"><Fret>0</Fret></Property><Property name="PartialCapoStringFlags"><Bitset>' + '0'.repeat(N) + '</Bitset></Property>'
       + (diagrams.length ? diagramSet('DiagramCollection') + diagramSet('DiagramWorkingSet') : '')
       + '</Properties></Staff></Staves>'
-      + '<Sounds><Sound><Name>' + cdata('Ukulele') + '</Name><Label>' + cdata('Ukulele') + '</Label><Path>' + cdata('Midi/24') + '</Path><Role>' + cdata('Factory') + '</Role><MIDI><LSB>0</LSB><MSB>0</MSB><Program>24</Program></MIDI></Sound></Sounds>'
+      + '<Sounds><Sound><Name>' + cdata(soundName) + '</Name><Label>' + cdata(soundName) + '</Label><Path>' + cdata('Midi/' + program) + '</Path><Role>' + cdata('Factory') + '</Role><MIDI><LSB>0</LSB><MSB>0</MSB><Program>' + program + '</Program></MIDI></Sound></Sounds>'
       + '<Automations><Automation><Type>Sound</Type><Linear>false</Linear><Bar>0</Bar><Position>0</Position><Visible>true</Visible><Value>' + cdata(sound) + '</Value></Automation></Automations>'
       + '</Track></Tracks>'
       + '<MasterBars>' + masterXml.join('') + '</MasterBars><Bars>' + barsXml.join('') + '</Bars><Voices>' + voicesXml.join('') + '</Voices>'

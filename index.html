@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; connect-src 'self' blob: data:; worker-src 'self' blob:; media-src 'self' blob:">
-<title>Arpège — tablatures ukulélé</title>
+<title>Arpège — tablatures ukulélé et guitare</title>
 <link rel="stylesheet" href="style.css">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#0f6b63">
@@ -21,6 +21,13 @@
 
 <main>
   <section id="tab-create" class="screen">
+    <div class="row-between instrument-row">
+      <span class="lbl">Instrument</span>
+      <div class="seg" role="group" aria-label="Instrument">
+        <button type="button" data-instrument="ukulele">Ukulélé</button>
+        <button type="button" data-instrument="guitar">Guitare</button>
+      </div>
+    </div>
     <label class="field">
       <span class="lbl">Accords</span>
       <textarea id="chords" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Am F C G"></textarea>
@@ -54,12 +61,7 @@
           <button type="button" data-level="soft">Doux</button>
           <button type="button" data-level="ghost">À vide</button>
         </div>
-        <div class="tool-row four" role="group" aria-label="Nombre de cordes touchées">
-          <button type="button" data-count="4">4 cordes</button>
-          <button type="button" data-count="3">3</button>
-          <button type="button" data-count="2">2</button>
-          <button type="button" data-count="1">1</button>
-        </div>
+        <div id="count-row" class="tool-row four" role="group" aria-label="Nombre de cordes touchées"></div>
       </div>
       <div class="row-between gap">
         <input id="pattern" class="mono" spellcheck="false" autocapitalize="off" autocomplete="off" aria-label="Motif en texte">
@@ -76,7 +78,7 @@
     <div class="options">
       <label><span class="lbl">Mesure</span><select id="meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
       <label><span class="lbl">Valeur d'un pas</span><select id="subdivision"><option value="8">Croche</option><option value="16">Double-croche</option></select></label>
-      <label><span class="lbl">Accordage</span><select id="tuning"></select></label>
+      <label><span class="lbl" id="tuning-label">Accordage</span><select id="tuning"></select></label>
       <label><span class="lbl">Transposer</span><select id="transpose"></select></label>
       <label><span class="lbl">Doigtés</span><select id="mode"><option value="easy">Les plus simples</option><option value="smooth">Le moins de déplacement</option><option value="position">Autour d'une case</option></select></label>
       <label id="position-wrap" hidden><span class="lbl">Case visée</span><input id="position" type="number" min="0" max="12" value="5" inputmode="numeric"></label>

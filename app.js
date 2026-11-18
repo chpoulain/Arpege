@@ -7,13 +7,16 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
   };
 
+  /* g : variante guitare du motif (B = la basse de l'accord, quelle que soit la corde qui la porte) ; only : réservé à un instrument. */
   const PRESETS = [
-    { name: 'Montée simple', kind: 'strings', p: '4 3 2 1' },
-    { name: 'Montée-descente', kind: 'strings', p: '4 3 2 1 2 3' },
-    { name: 'Aller-retour sur 8 pas', kind: 'strings', p: '4 3 2 1 2 3 2 3' },
-    { name: 'Picking alterné', kind: 'strings', p: '4 2 3 1 4 2 3 1' },
-    { name: 'Pouce et deux doigts', kind: 'strings', p: '3 2+1 4 2+1' },
-    { name: 'Valse (3/4)', kind: 'strings', p: '3 2+1 2+1' },
+    { name: 'Montée simple', kind: 'strings', p: '4 3 2 1', g: 'B 3 2 1' },
+    { name: 'Montée-descente', kind: 'strings', p: '4 3 2 1 2 3', g: 'B 3 2 1 2 3' },
+    { name: 'Aller-retour sur 8 pas', kind: 'strings', p: '4 3 2 1 2 3 2 3', g: 'B 3 2 1 2 3 2 3' },
+    { name: 'Grand arpège', kind: 'strings', only: 'guitar', p: 'B 4 3 2 1 2 3 4' },
+    { name: 'Picking alterné', kind: 'strings', p: '4 2 3 1 4 2 3 1', g: 'B 3 4 2 B 3 4 2' },
+    { name: 'Pouce et deux doigts', kind: 'strings', p: '3 2+1 4 2+1', g: 'B 2+1 4 2+1' },
+    { name: 'Basse et accord pincé', kind: 'strings', only: 'guitar', p: 'B 3+2+1 B 3+2+1' },
+    { name: 'Valse (3/4)', kind: 'strings', p: '3 2+1 2+1', g: 'B 3+2+1 3+2+1' },
     { name: 'Basse alternée', kind: 'degrees', p: 'T 3 5 3' },
     { name: 'Accord brisé', kind: 'degrees', p: 'T 3 5 7 5 3' },
     { name: 'Ballade', kind: 'degrees', p: 'T 5 3 5 7 5 3 5' },
@@ -25,8 +28,9 @@
     { name: 'Reggae (contretemps)', kind: 'strum', p: '- B - B - B - B' },
     { name: 'Coup étouffé', kind: 'strum', p: 'b h x h b h x h' },
     { name: '3+3+2', kind: 'strum', p: 'B h b H b h B (h)' },
-    { name: 'Hauts courts', kind: 'strum', p: 'b - b h2 - h2 b h2' },
+    { name: 'Hauts courts', kind: 'strum', p: 'b - b h2 - h2 b h2', g: 'b - b h3 - h3 b h3' },
     { name: 'Pouce et frappe', kind: 'strum', p: 'p h b h t h b h' },
+    { name: 'Basse puis accord', kind: 'strum', only: 'guitar', p: 'p - b h p - b h' },
     { name: 'Coup et doigts', kind: 'strum', p: 'b 2 3 b 2 3 b 2' },
     { name: 'Hawaïen (double-croches)', kind: 'strum', sub: '16', p: 'b - - - b - h - b h b h - - h -' },
     { name: 'Valse rythmique (3/4)', kind: 'strum', p: 'b - b h b h' },
@@ -34,6 +38,13 @@
 
   const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
   const state = Object.assign({}, defaults, store.get('draft', {}));
+  if (!Object.prototype.hasOwnProperty.call(C.TUNINGS, state.tuning)) state.tuning = 'standard';
+  /* L'instrument se déduit de l'accordage : rien d'autre à enregistrer dans un morceau. */
+  const inst = () => C.TUNINGS[state.tuning].instrument;
+  const N = () => C.stringCount(state.tuning);
+  const presets = () => PRESETS.filter((p) => !p.only || p.only === inst())
+    .map((p) => ({ name: p.name, kind: p.kind, sub: p.sub, p: inst() === 'guitar' && p.g ? p.g : p.p }));
+  const shapeText = (frets) => frets.map(C.fretText).join(' ');
   let score = null;
   let importedScore = null; // tablature importée : affichée telle quelle, sans générateur
   let playing = false;
@@ -60,18 +71,57 @@
 
   /* ---------- formulaire ---------- */
   function fillSelects() {
-    $('tuning').innerHTML = '';
-    Object.entries(C.TUNINGS).forEach(([k, t]) => $('tuning').add(new Option(t.label, k)));
     for (let i = -6; i <= 6; i++) $('transpose').add(new Option(i === 0 ? 'Non' : (i > 0 ? '+' : '−') + Math.abs(i) + ' demi-ton' + (Math.abs(i) > 1 ? 's' : ''), i));
-    const ph = new Option('Choisir…', ''); $('presets').add(ph);
+  }
+  /* Tout ce qui dépend de l'instrument : accordages proposés, motifs prêts, boutons du nombre de cordes. */
+  let shownInst = null;
+  function fillInstrument() {
+    if (shownInst === inst()) return;
+    shownInst = inst();
+    const guitar = shownInst === 'guitar';
+    document.querySelectorAll('[data-instrument]').forEach((b) => { const on = b.dataset.instrument === shownInst; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    $('tuning-label').textContent = guitar ? 'Accordage, capo' : 'Accordage';
+    $('tuning').innerHTML = '';
+    Object.entries(C.TUNINGS).forEach(([k, t]) => { if (t.instrument === shownInst) $('tuning').add(new Option(t.label, k)); });
+    $('presets').innerHTML = '';
+    $('presets').add(new Option('Choisir…', ''));
     [['strings', 'Arpèges par cordes'], ['degrees', 'Arpèges par notes'], ['strum', 'Rythmiques']].forEach(([kind, label]) => {
       const group = document.createElement('optgroup'); group.label = label;
-      PRESETS.forEach((p, i) => { if (p.kind === kind) group.appendChild(new Option(p.name, i)); });
+      presets().forEach((p, i) => { if (p.kind === kind) group.appendChild(new Option(p.name, i)); });
       $('presets').appendChild(group);
     });
+    const row = $('count-row'); row.innerHTML = '';
+    row.className = 'tool-row ' + (guitar ? 'five' : 'four');
+    (guitar ? [[6, 'Toutes'], [4, '4'], [3, '3'], [2, '2'], [1, '1']] : [[4, '4 cordes'], [3, '3'], [2, '2'], [1, '1']]).forEach(([n, label]) => {
+      const b = document.createElement('button'); b.type = 'button'; b.dataset.count = n; b.textContent = label;
+      b.addEventListener('click', () => { const cur = strumSteps()[strumSel]; setStrumStep(Object.assign({}, cur, { count: n })); });
+      row.appendChild(b);
+    });
+    fillModelSelect($('grid-all'), true);
   }
+  /* Change d'instrument : accordage par défaut, et le motif en cours est traduit s'il vient des motifs prêts. */
+  function setInstrument(name) {
+    if (!C.INSTRUMENTS[name] || name === inst()) return;
+    const before = presets(); const oldN = N();
+    const known = before.find((p) => p.kind === state.patternKind && p.p === state.pattern.trim().replace(/\s+/g, ' '));
+    const strum = state.patternKind === 'strum' ? C.parsePattern(state.pattern, 'strum', oldN).steps : null;
+    state.lastTuning = Object.assign({}, state.lastTuning, { [inst()]: state.tuning });
+    const back = state.lastTuning[name];
+    state.tuning = back && C.TUNINGS[back] && C.TUNINGS[back].instrument === name ? back : C.INSTRUMENTS[name].tuning;
+    state.overrides = {}; state.sections = null;
+    const after = presets();
+    const same = known && after.find((p) => p.name === known.name);
+    if (same) state.pattern = same.p;
+    else if (strum) state.pattern = strum.map((s) => C.strumToText(s.type === 'stroke' && s.count >= oldN ? Object.assign({}, s, { count: N() }) : s, N())).join(' ');
+    else if (state.patternKind === 'strings') state.pattern = after.find((p) => p.kind === 'strings').p;
+    syncForm(); saveDraft();
+    if (score && !importedScore && score.bars.length) { score = C.buildScore(state); if (!$('tab-score').hidden) drawScore(); }
+  }
+  document.querySelectorAll('[data-instrument]').forEach((b) => b.addEventListener('click', () => setInstrument(b.dataset.instrument)));
 
   function syncForm() {
+    if (!Object.prototype.hasOwnProperty.call(C.TUNINGS, state.tuning)) state.tuning = 'standard';
+    fillInstrument();
     $('title').value = state.title; $('chords').value = state.chords; $('pattern').value = state.pattern;
     ['meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position'].forEach((k) => { $(k).value = state[k]; });
     $('tempo').value = state.tempo; tempoLabel();
@@ -84,7 +134,9 @@
     $('kind-hint').textContent = state.patternKind === 'strum'
       ? 'Touche un pas pour le régler, touche-le encore pour alterner bas, haut, silence. Au clavier : b bas, h haut, B fort, b. doux, (b) à vide, b2 sur 2 cordes, x étouffé, p pouce, t frappe sur le bois, 2 corde pincée, - silence.'
       : state.patternKind === 'strings'
-      ? 'Chaque pas indique la corde à pincer : 1 = ligne du haut de la tablature, 4 = ligne du bas. 2+1 = ensemble, - = silence.'
+      ? (inst() === 'guitar'
+        ? 'Chaque pas indique la corde à pincer : 1 = ligne du haut de la tablature (mi aigu), 6 = ligne du bas. B = la basse de l\'accord, sur la corde qui la porte (la 5e pour Do, la 4e pour Ré…). 2+1 = ensemble, - = silence.'
+        : 'Chaque pas indique la corde à pincer : 1 = ligne du haut de la tablature, 4 = ligne du bas. 2+1 = ensemble, - = silence.')
       : 'Chaque pas indique une note de l\'accord : T tonique, 3 tierce, 5 quinte, 7 septième. La corde est trouvée selon le doigté.';
   }
   function saveDraft() { store.set('draft', state); }
@@ -104,12 +156,12 @@
   document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
     if (state.patternKind === b.dataset.kind) return;
     state.patternKind = b.dataset.kind;
-    const preset = PRESETS.find((p) => p.kind === state.patternKind);
+    const preset = presets().find((p) => p.kind === state.patternKind);
     state.pattern = preset.p; $('pattern').value = state.pattern;
     syncForm(); saveDraft();
   }));
   $('presets').addEventListener('change', () => {
-    const p = PRESETS[+$('presets').value];
+    const p = presets()[+$('presets').value];
     if (!p || $('presets').value === '') return;
     state.patternKind = p.kind; state.pattern = p.p;
     if (p.sub) state.subdivision = p.sub; else if (p.kind === 'strum') state.subdivision = '8';
@@ -125,10 +177,12 @@
   function rows() {
     if (state.patternKind === 'degrees') return [['7', '7'], ['5', '5'], ['3', '3'], ['T', 'T']];
     const n = C.TUNINGS[state.tuning].names;
-    return [['1', n[3]], ['2', n[2]], ['3', n[1]], ['4', n[0]]];
+    if (inst() !== 'guitar') return [['1', n[3]], ['2', n[2]], ['3', n[1]], ['4', n[0]]];
+    // Deux cordes de mi : le numéro de corde lève le doute. La dernière ligne joue la basse de l'accord.
+    return n.map((name, i) => [String(n.length - i), (n.length - i) + ' ' + name]).reverse().concat([['B', 'Basse']]);
   }
   let strumSel = 0;
-  function strumSteps() { const s = C.parsePattern(state.pattern, 'strum').steps; return s.length ? s : [{ type: 'rest' }]; }
+  function strumSteps() { const s = C.parsePattern(state.pattern, 'strum', N()).steps; return s.length ? s : [{ type: 'rest' }]; }
   function setStrumStep(step) { const s = strumSteps(); s[strumSel] = step; writePattern(s); }
   function drawStrumGrid() {
     const steps = strumSteps();
@@ -146,16 +200,16 @@
     steps.forEach((st, i) => {
       const b = document.createElement('button'); b.type = 'button';
       b.className = 'cell stroke' + (i === strumSel ? ' sel' : '');
-      b.setAttribute('aria-label', 'Pas ' + (i + 1) + ' : ' + C.strumToText(st));
+      b.setAttribute('aria-label', 'Pas ' + (i + 1) + ' : ' + C.strumToText(st, N()));
       b.setAttribute('aria-pressed', i === strumSel);
       const svg = document.createElementNS(NS, 'svg'); svg.setAttribute('viewBox', '0 0 36 50'); svg.setAttribute('aria-hidden', 'true');
-      S.drawStroke(svg, 18, 7, 36, st);
+      S.drawStroke(svg, 18, 7, 36, st, N());
       b.appendChild(svg);
       b.addEventListener('click', () => {
         if (i !== strumSel) { strumSel = i; drawGrid(); return; }
         // Deuxième toucher : alterne bas, haut, silence.
         const next = st.type === 'stroke' && st.dir === 'down' ? { type: 'stroke', dir: 'up', level: st.level, count: st.count }
-          : st.type === 'stroke' ? { type: 'rest' } : { type: 'stroke', dir: 'down', level: 'normal', count: 4 };
+          : st.type === 'stroke' ? { type: 'rest' } : { type: 'stroke', dir: 'down', level: 'normal', count: N() };
         setStrumStep(next);
       });
       g.appendChild(b);
@@ -174,21 +228,22 @@
   document.querySelectorAll('[data-gesture]').forEach((b) => b.addEventListener('click', () => {
     const cur = strumSteps()[strumSel];
     const v = b.dataset.gesture;
-    if (v === 'down' || v === 'up') setStrumStep({ type: 'stroke', dir: v, level: cur.level || 'normal', count: cur.count || 4 });
-    else if (v === 'chunk') setStrumStep(cur.type === 'chunk' ? { type: 'stroke', dir: cur.dir, level: 'normal', count: 4 } : { type: 'chunk', dir: cur.dir || 'down' });
+    if (v === 'down' || v === 'up') setStrumStep({ type: 'stroke', dir: v, level: cur.level || 'normal', count: cur.count || N() });
+    else if (v === 'chunk') setStrumStep(cur.type === 'chunk' ? { type: 'stroke', dir: cur.dir, level: 'normal', count: N() } : { type: 'chunk', dir: cur.dir || 'down' });
     else setStrumStep({ type: { thumb: 'thumb', tap: 'tap', rest: 'rest' }[v] });
   }));
   document.querySelectorAll('[data-level]').forEach((b) => b.addEventListener('click', () => { const cur = strumSteps()[strumSel]; setStrumStep(Object.assign({}, cur, { level: b.dataset.level })); }));
-  document.querySelectorAll('[data-count]').forEach((b) => b.addEventListener('click', () => { const cur = strumSteps()[strumSel]; setStrumStep(Object.assign({}, cur, { count: +b.dataset.count })); }));
 
   function drawGrid() {
     const isStrum = state.patternKind === 'strum';
     $('strum-tools').hidden = !isStrum;
     if (isStrum) { drawStrumGrid(); return; }
-    const pat = C.parsePattern(state.pattern, state.patternKind);
+    const pat = C.parsePattern(state.pattern, state.patternKind, N());
     const g = $('pattern-grid'); g.innerHTML = '';
     const steps = pat.steps.length ? pat.steps : [[]];
-    g.style.gridTemplateColumns = '30px repeat(' + steps.length + ', 38px)';
+    const wide = inst() === 'guitar' && state.patternKind === 'strings';
+    g.classList.toggle('wide', wide);
+    g.style.gridTemplateColumns = (wide ? '48px' : '30px') + ' repeat(' + steps.length + ', 38px)';
     const perBeat = state.meter === '6/8' ? (state.subdivision === '16' ? 6 : 3) : (state.subdivision === '16' ? 4 : 2);
     rows().forEach(([tok, label]) => {
       const lab = document.createElement('div'); lab.className = 'rowlab'; lab.textContent = label; g.appendChild(lab);
@@ -198,7 +253,7 @@
         b.setAttribute('aria-label', 'Pas ' + (i + 1) + ', ' + label + (st.includes(tok) ? ', actif' : ''));
         b.setAttribute('aria-pressed', st.includes(tok));
         b.addEventListener('click', () => {
-          const cur = C.parsePattern(state.pattern, state.patternKind).steps;
+          const cur = C.parsePattern(state.pattern, state.patternKind, N()).steps;
           if (!cur.length) cur.push([]);
           cur[i] = cur[i].includes(tok) ? cur[i].filter((x) => x !== tok) : cur[i].concat(tok);
           writePattern(cur);
@@ -208,12 +263,12 @@
     });
   }
   function writePattern(steps) {
-    state.pattern = steps.map((s) => (state.patternKind === 'strum' ? C.strumToText(s) : s.length ? s.join('+') : '-')).join(' ');
+    state.pattern = steps.map((s) => (state.patternKind === 'strum' ? C.strumToText(s, N()) : s.length ? s.join('+') : '-')).join(' ');
     $('pattern').value = state.pattern;
     drawGrid(); saveDraft();
   }
-  $('step-plus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind).steps; if (s.length < 32) { s.push(state.patternKind === 'strum' ? { type: 'rest' } : []); writePattern(s); } });
-  $('step-minus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind).steps; if (s.length > 1) { s.pop(); writePattern(s); } });
+  $('step-plus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind, N()).steps; if (s.length < 32) { s.push(state.patternKind === 'strum' ? { type: 'rest' } : []); writePattern(s); } });
+  $('step-minus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind, N()).steps; if (s.length > 1) { s.pop(); writePattern(s); } });
 
   /* ---------- génération ---------- */
   function generate() {
@@ -247,7 +302,7 @@
     score.voicings.forEach((v) => {
       const b = document.createElement('button'); b.type = 'button'; b.className = 'dia';
       b.textContent = v.chord.label; b.appendChild(S.diagram(v.frets));
-      b.setAttribute('aria-label', 'Accord ' + v.chord.label + ', doigté ' + v.frets.join(' ') + '. Changer');
+      b.setAttribute('aria-label', 'Accord ' + v.chord.label + ', doigté ' + shapeText(v.frets) + '. Changer');
       b.addEventListener('click', () => openSheet(v));
       box.appendChild(b);
     });
@@ -277,7 +332,7 @@
     C.voicingsFor(v.chord, score.tuning).slice(0, 12).forEach((alt) => {
       const b = document.createElement('button'); b.type = 'button';
       b.className = 'dia' + (alt.shape === v.shape ? ' sel' : '');
-      b.textContent = alt.frets.join(' '); b.appendChild(S.diagram(alt.frets));
+      b.textContent = shapeText(alt.frets); b.appendChild(S.diagram(alt.frets));
       b.addEventListener('click', () => { state.overrides[sheetChord] = alt.shape; applySheet(); });
       list.appendChild(b);
     });
@@ -299,7 +354,7 @@
     sel.add(new Option('Mon motif (page Créer)', MINE));
     [['strings', 'Arpèges par cordes'], ['degrees', 'Arpèges par notes'], ['strum', 'Rythmiques']].forEach(([kind, label]) => {
       const group = document.createElement('optgroup'); group.label = label;
-      PRESETS.filter((p) => p.kind === kind).forEach((p) => group.appendChild(new Option(p.name, p.name)));
+      presets().filter((p) => p.kind === kind).forEach((p) => group.appendChild(new Option(p.name, p.name)));
       sel.appendChild(group);
     });
   }
@@ -365,13 +420,12 @@
   }
   function sectionFromModel(sec) {
     const value = gridModel(sec.name);
-    const p = PRESETS.find((x) => x.name === value);
+    const p = presets().find((x) => x.name === value);
     const m = p ? { pattern: p.p, patternKind: p.kind, subdivision: p.sub || '8' } : { pattern: state.pattern, patternKind: state.patternKind, subdivision: state.subdivision };
     return Object.assign({ name: sec.name, chords: sec.chords }, m);
   }
   function fillGridSelects() {
     Object.entries(C.GRID_STYLES).forEach(([k, st]) => $('grid-style').add(new Option(st.label, k)));
-    fillModelSelect($('grid-all'), true);
   }
   ['mode', 'style', 'form', 'bars', 'perbar'].forEach((k) => $('grid-' + k).addEventListener('change', () => {
     const field = k === 'perbar' ? 'perBar' : k;
@@ -567,7 +621,7 @@
     return lines.join('\n');
   }
   async function openGuitarPro(bytes) {
-    const r = await window.UkuGp.importGp(bytes);
+    const r = await window.UkuGp.importGp(bytes, N());
     if (!r.score.bars.length) throw new Error('aucune mesure dans ce fichier');
     if (playing) { S.stop(); setPlaying(false); }
     importedScore = r.score; score = r.score;
@@ -847,16 +901,16 @@
   }
   function detect() {
     const text = $('import-text').value;
-    lastDetect = C.detectContent(text, state.meter);
+    lastDetect = C.detectContent(text, state.meter, N());
     const found = C.findChords(text, { meter: state.meter, tuning: state.tuning });
     const el = $('import-detect'); const btn = $('transform');
     $('chord-panel').hidden = true;
     btn.hidden = lastDetect.type !== 'tab';
-    if (lastDetect.type === 'tab') setMsg(el, 'Tablature ukulélé détectée : ' + lastDetect.count + ' mesure' + (lastDetect.count > 1 ? 's' : '') + '.');
+    if (lastDetect.type === 'tab') setMsg(el, 'Tablature ' + (C.stringCount(lastDetect.score.tuning) === 6 ? 'guitare' : 'ukulélé') + ' détectée : ' + lastDetect.count + ' mesure' + (lastDetect.count > 1 ? 's' : '') + '.');
     else if (lastDetect.type === 'chords') setMsg(el, 'Grille d\'accords trouvée : ' + lastDetect.count + ' accord' + (lastDetect.count > 1 ? 's' : '') + '.');
     else {
       setMsg(el, lastDetect.type === 'unsupported-tab'
-        ? 'Tablature à ' + lastDetect.strings + ' cordes détectée : seules les tablatures à 4 cordes sont converties.'
+        ? 'Tablature à ' + lastDetect.strings + ' cordes détectée : seules les tablatures à 4 cordes (ukulélé) et à 6 cordes (guitare) sont converties.'
         : 'Ni accords ni tablature reconnus. Corrige le texte ci-dessus.', 'warn');
     }
     if (found.source === 'written') showChordPanel(found.chordsText, textFromImage ? 'Noms d\'accords lus sur l\'image : compare-les avec elle, un nom peut manquer ou être mal lu.' : 'Noms d\'accords lus dans le fichier.');
@@ -913,7 +967,12 @@
     catch (e) { progress(null); status('Lecture impossible : ' + (e.message || e), 'err'); }
   });
 
-  fillSelects(); fillGridSelects(); syncForm(); renderRecent(); goto('create');
+  fillSelects(); fillGridSelects();
+  // Lien direct vers un instrument : …?instrument=guitare ou …?instrument=ukulele
+  const asked = { guitare: 'guitar', guitar: 'guitar', ukulele: 'ukulele', 'ukulélé': 'ukulele' }[(new URLSearchParams(location.search).get('instrument') || '').toLowerCase()];
+  syncForm();
+  if (asked) setInstrument(asked);
+  renderRecent(); goto('create');
   // Lien de morceau ouvert dans la version web : on propose de l'ajouter, puis on nettoie l'adresse.
   if (C.songLinkData(location.hash)) {
     const link = location.href;

@@ -155,7 +155,7 @@
   }
 
   function findBarColumns(dark, w, sys) {
-    const top = sys.lines[0].top; const bot = sys.lines[3].bot; const span = bot - top + 1;
+    const top = sys.lines[0].top; const bot = sys.lines[sys.lines.length - 1].bot; const span = bot - top + 1;
     const thick = sys.lines[0].bot - sys.lines[0].top + 1;
     const raw = [];
     for (let x = 0; x < w; x++) {
@@ -173,7 +173,7 @@
 
   function findDigitBoxes(dark, w, h, sys, bars) {
     const y0 = Math.max(0, Math.floor(sys.lines[0].c - sys.gap * 0.75));
-    const y1 = Math.min(h - 1, Math.ceil(sys.lines[3].c + sys.gap * 0.75));
+    const y1 = Math.min(h - 1, Math.ceil(sys.lines[sys.lines.length - 1].c + sys.gap * 0.75));
     const bw = w; const bh = y1 - y0 + 1;
     const mask = new Uint8Array(bw * bh);
     for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) mask[y * bw + x] = dark[(y + y0) * w + x];
@@ -331,10 +331,9 @@
       const dark = new Uint8Array(gray.length);
       for (let i = 0; i < gray.length; i++) dark[i] = gray[i] <= t ? 1 : 0;
       const groups = groupSystems(findStaffLines(dark, w, h));
-      if (groups.some((g) => g.lines.length === 6) && !groups.some((g) => g.lines.length === 4)) {
-        return { text: 'e|--|\nB|--|\nG|--|\nD|--|\nA|--|\nE|--|', unread: 0 };
-      }
-      const systems = groups.filter((g) => g.lines.length === 4);
+      // 4 lignes = ukulélé ; à défaut, 6 lignes = guitare.
+      const size = groups.some((g) => g.lines.length === 4) ? 4 : 6;
+      const systems = groups.filter((g) => g.lines.length === size);
       if (!systems.length) {
         // Portées à 5 lignes seules : on ne sait pas lire les notes dessinées, seulement les accords imprimés au-dessus.
         if (!groups.some((g) => g.lines.length === 5)) continue;
@@ -416,7 +415,7 @@
         const prev = groups[at - 1];
         const under = prev && prev.lines.length === 5 && job.sys.lines[0].top - prev.lines[4].bot < job.sys.gap * 8;
         const names = await readChordBand(prep, dark, worker, groups, under ? at - 1 : at);
-        blocks.push((names ? names + '\n' : '') + systemToText(items, job.bars, job.sys, ['A', 'E', 'C', 'G']));
+        blocks.push((names ? names + '\n' : '') + systemToText(items, job.bars, job.sys, size === 6 ? ['e', 'B', 'G', 'D', 'A', 'E'] : ['A', 'E', 'C', 'G']));
       }
       if (blocks.length) return { text: blocks.join('\n\n'), unread };
     }

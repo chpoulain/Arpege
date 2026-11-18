@@ -2,13 +2,35 @@
 (function (global) {
   'use strict';
 
+  /* L'accordage dit l'instrument : 4 cordes pour le ukulélé, 6 pour la guitare.
+     ref : cordes à vide de l'accordage de référence sur lequel les formes sont calculées ; offset : écart de l'accordage avec lui.
+     staff : la guitare s'écrit une octave au-dessus de ce qu'elle sonne. */
+  const UKE_REF = [7, 0, 4, 9];
+  const GUITAR_REF = [4, 9, 2, 7, 11, 4];
   const TUNINGS = {
     standard: { label: 'Standard G C E A', midi: [67, 60, 64, 69], names: ['G', 'C', 'E', 'A'], offset: 0 },
     lowg: { label: 'Sol grave g C E A', midi: [55, 60, 64, 69], names: ['G', 'C', 'E', 'A'], offset: 0 },
     d: { label: 'En ré A D F# B', midi: [69, 62, 66, 71], names: ['A', 'D', 'F#', 'B'], offset: 2 },
     baritone: { label: 'Baryton D G B E', midi: [50, 55, 59, 64], names: ['D', 'G', 'B', 'E'], offset: 7 },
+    guitar: { label: 'Standard E A D G B E', midi: [40, 45, 50, 55, 59, 64], names: ['E', 'A', 'D', 'G', 'B', 'E'], offset: 0 },
+    dropd: { label: 'Drop D : D A D G B E', midi: [38, 45, 50, 55, 59, 64], names: ['D', 'A', 'D', 'G', 'B', 'E'], offset: 0, ref: [2, 9, 2, 7, 11, 4], family: 'dropd' },
   };
-  const REF_OPEN = [7, 0, 4, 9]; // formes calculées sur G C E A, puis valables sur tout accordage transposé
+  // Capodastre : comme dans les recueils, les accords gardent le nom de leur forme et les cases se comptent à partir du capo ;
+  // seul le son monte. Pour garder la tonalité d'origine, on transpose d'autant vers le bas.
+  for (let k = 1; k <= 7; k++) {
+    TUNINGS['capo' + k] = { label: 'Capo ' + k + (k === 1 ? ' (1re case)' : ' (' + k + 'e case)'), midi: TUNINGS.guitar.midi.map((m) => m + k), names: TUNINGS.guitar.names, offset: 0, capo: k };
+  }
+  Object.keys(TUNINGS).forEach((k) => {
+    const t = TUNINGS[k]; const six = t.midi.length === 6;
+    t.instrument = six ? 'guitar' : 'ukulele';
+    t.ref = t.ref || (six ? GUITAR_REF : UKE_REF);
+    t.family = t.family || t.instrument;
+    t.staff = six ? 12 : 0;
+  });
+  const INSTRUMENTS = { ukulele: { label: 'Ukulélé', tuning: 'standard' }, guitar: { label: 'Guitare', tuning: 'guitar' } };
+  const tuningOf = (key) => TUNINGS[Object.prototype.hasOwnProperty.call(TUNINGS, key) ? key : 'standard'];
+  const stringCount = (key) => tuningOf(key).midi.length;
+  const fretText = (f) => (f < 0 ? 'x' : String(f));
   const METERS = { '4/4': { units: 16, beats: 4, value: 4 }, '3/4': { units: 12, beats: 3, value: 4 }, '2/4': { units: 8, beats: 2, value: 4 }, '6/8': { units: 12, beats: 6, value: 8 } };
 
   const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
@@ -41,6 +63,23 @@
     G: '0232', Gm: '0231', G7: '0212', Gm7: '0211', Gmaj7: '0222', Gsus4: '0233', G6: '0202',
     'G#': '5343', 'G#m': '4342', 'G#7': '1323', A: '2100', Am: '2000', A7: '0100', Am7: '0000', Amaj7: '1100', Asus4: '2200', A6: '2424',
     'A#': '3211', 'A#m': '3111', 'A#7': '1211', 'A#maj7': '3210', B: '4322', Bm: '4222', B7: '2322', Bm7: '2222',
+  };
+
+  // Formes usuelles de guitare (E A D G B E), de la corde grave à l'aiguë ; x = corde non jouée.
+  const COMMON_GUITAR = {
+    C: 'x32010', C7: 'x32310', Cmaj7: 'x32000', Cm: 'x35543', Cm7: 'x35343', C6: 'x32210', Csus4: 'x33011', Csus2: 'x30033', Cadd9: 'x32030',
+    'C#': 'x46664', 'C#m': 'x46654', 'C#7': 'x46464', 'C#m7': 'x46454',
+    D: 'xx0232', Dm: 'xx0231', D7: 'xx0212', Dm7: 'xx0211', Dmaj7: 'xx0222', Dsus4: 'xx0233', Dsus2: 'xx0230', D6: 'xx0202',
+    'D#': 'x68886', 'D#m': 'x68876', 'D#7': 'x68686',
+    E: '022100', Em: '022000', E7: '020100', Em7: '022030', Emaj7: '021100', Esus4: '022200', E6: '022120',
+    F: '133211', Fm: '133111', F7: '131211', Fmaj7: 'xx3210', Fm7: '131111',
+    'F#': '244322', 'F#m': '244222', 'F#7': '242322', 'F#m7': '242222',
+    G: '320003', Gm: '355333', G7: '320001', Gm7: '353333', Gmaj7: '320002', Gsus4: '330013', G6: '320000',
+    'G#': '466544', 'G#m': '466444', 'G#7': '464544',
+    A: 'x02220', Am: 'x02210', A7: 'x02020', Am7: 'x02010', Amaj7: 'x02120', Asus4: 'x02230', Asus2: 'x02200', A6: 'x02222',
+    'A#': 'x13331', 'A#m': 'x13321', 'A#7': 'x13131', 'A#maj7': 'x13231',
+    B: 'x24442', Bm: 'x24432', B7: 'x21202', Bm7: 'x24232', Bdim: 'x2343x',
+    E5: '022xxx', F5: '133xxx', 'F#5': '244xxx', G5: '355xxx', 'G#5': '466xxx', A5: 'x022xx', 'A#5': 'x133xx', B5: 'x244xx', C5: 'x355xx', 'C#5': 'x466xx', D5: 'xx023x', 'D#5': 'xx134x',
   };
 
   const CHORD_RES = [/^(Do|Ré|Re|Mi|Fa|Sol|La|Si)(#|♯|b|♭)?(.*)$/, /^([A-G])(#|♯|b|♭)?(.*)$/];
@@ -110,46 +149,74 @@
   /* ---------- Doigtés ---------- */
   const voicingCache = new Map();
 
+  /* Ukulélé : les 4 cordes sonnent toujours. Guitare : les cordes graves peuvent rester muettes (-1),
+     et la note la plus grave est de préférence la fondamentale (ou la basse demandée, « C/G »). */
   function voicingsFor(chord, tuningKey) {
-    const tuning = TUNINGS[tuningKey] || TUNINGS.standard;
+    const tuning = tuningOf(tuningKey);
+    const ref = tuning.ref; const n = ref.length; const guitar = n > 4;
     const refRoot = (chord.root - tuning.offset + 120) % 12;
-    const cacheKey = refRoot + ':' + chord.quality;
+    const bassChord = guitar && chord.bass ? parseChord(chord.bass) : null;
+    const wantLow = bassChord ? (bassChord.root - tuning.offset + 120) % 12 : refRoot;
+    const cacheKey = tuning.family + ':' + refRoot + ':' + chord.quality + (bassChord ? '/' + wantLow : '');
     if (voicingCache.has(cacheKey)) return voicingCache.get(cacheKey);
     const q = QUALITY[chord.quality];
     const allowed = new Set(q.iv.map((i) => (refRoot + i) % 12));
+    if (bassChord) allowed.add(wantLow);
     const need = q.req.map((i) => (refRoot + i) % 12);
-    const common = COMMON[SHARP[refRoot] + chord.quality];
+    const common = bassChord ? null : (guitar ? COMMON_GUITAR : COMMON)[SHARP[refRoot] + chord.quality];
+    const minSounding = guitar ? Math.min(4, Math.max(3, q.iv.length + 1)) : n;
+    const maxTop = guitar ? (q.iv.length === 2 ? 3 : 1) : 0; // cordes aiguës muettes : une au plus, trois pour un accord de puissance
     const out = [];
     // Recherche normale, puis élargie (grand écart ou manche haut) pour les rares accords sans forme compacte.
     for (const [maxFret, maxSpan] of [[12, 3], [12, 4], [15, 3], [15, 4]]) {
       if (out.length) break;
-    const candidates = REF_OPEN.map((open) => {
-      const fr = [];
-      for (let f = 0; f <= maxFret; f++) if (allowed.has((open + f) % 12)) fr.push(f);
-      return fr;
-    });
-    for (const a of candidates[0]) for (const b of candidates[1]) for (const c of candidates[2]) for (const d of candidates[3]) {
-      const fr = [a, b, c, d];
-      const fretted = fr.filter((x) => x > 0);
-      const min = fretted.length ? Math.min(...fretted) : 0;
-      const max = fretted.length ? Math.max(...fretted) : 0;
-      if (max - min > maxSpan) continue;
-      const pcs = new Set(fr.map((x, i) => (REF_OPEN[i] + x) % 12));
-      if (!need.every((p) => pcs.has(p))) continue;
-      const missing = q.iv.filter((i) => !pcs.has((refRoot + i) % 12)).length;
-      const atMin = fr.reduce((acc, x, i) => (x === min && min > 0 ? acc.concat(i) : acc), []);
-      let barre = false;
-      if (atMin.length >= 2) {
-        barre = true;
-        for (let i = atMin[0]; i <= atMin[atMin.length - 1]; i++) if (fr[i] === 0) barre = false;
-      }
-      const fingers = fretted.length - (barre ? atMin.length - 1 : 0);
-      if (fingers > 4) continue;
-      let cost = (maxSpan > 3 || maxFret > 12 ? 4 : 0) + fingers * 0.8 + (max - min) * 0.7 + min * 0.55 + missing * 1.5 + (barre ? 0.6 : 0);
-      const shape = fr.join('');
-      if (common === shape && max < 10) cost -= 5;
-      out.push({ frets: fr, cost, shape: fr.map((x) => x.toString(36)).join('') });
-    }
+      const candidates = ref.map((open) => {
+        const fr = [];
+        for (let f = 0; f <= maxFret; f++) if (allowed.has((open + f) % 12)) fr.push(f);
+        return fr;
+      });
+      const fr = new Array(n);
+      const keep = () => {
+        const sounding = []; fr.forEach((x, i) => { if (x >= 0) sounding.push(i); });
+        if (sounding.length < minSounding) return;
+        const fretted = fr.filter((x) => x > 0);
+        const min = fretted.length ? Math.min(...fretted) : 0;
+        const max = fretted.length ? Math.max(...fretted) : 0;
+        const pcs = new Set(sounding.map((i) => (ref[i] + fr[i]) % 12));
+        if (!need.every((p) => pcs.has(p))) return;
+        const missing = q.iv.filter((i) => !pcs.has((refRoot + i) % 12)).length;
+        const atMin = fr.reduce((acc, x, i) => (x === min && min > 0 ? acc.concat(i) : acc), []);
+        let barre = false;
+        if (atMin.length >= 2) {
+          barre = true;
+          for (let i = atMin[0]; i <= atMin[atMin.length - 1]; i++) if (fr[i] === 0) barre = false;
+        }
+        const fingers = fretted.length - (barre ? atMin.length - 1 : 0);
+        if (fingers > 4) return;
+        let cost = (maxSpan > 3 || maxFret > 12 ? 4 : 0) + fingers * 0.8 + (max - min) * 0.7 + min * 0.55 + missing * 1.5 + (barre ? 0.6 : 0);
+        if (guitar) {
+          const top = n - 1 - sounding[sounding.length - 1];
+          const low = (ref[sounding[0]] + fr[sounding[0]]) % 12;
+          cost += sounding[0] * 0.45 + top * (q.iv.length === 2 ? 0 : 0.9) + (low === wantLow ? 0 : 4);
+          // Cordes à vide au milieu d'une position haute : difficile à faire sonner proprement.
+          if (min > 4 && sounding.some((i) => fr[i] === 0 && i > sounding[0])) cost += 1.5;
+        }
+        const shape = fr.map(fretText).join('');
+        if (common === shape && max < 10) cost -= 5;
+        out.push({ frets: fr.slice(), cost, shape: fr.map((x) => (x < 0 ? 'x' : x.toString(36))).join('') });
+      };
+      // Parcours corde par corde ; l'écart entre cases est vérifié dès que possible.
+      const walk = (i, lo, hi, mutedSoFar) => {
+        if (i === n) { keep(); return; }
+        if (guitar && mutedSoFar === i && i < 2) { fr[i] = -1; walk(i + 1, lo, hi, mutedSoFar + 1); }
+        if (i > mutedSoFar && i >= n - maxTop) { for (let k = i; k < n; k++) fr[k] = -1; keep(); }
+        for (const f of candidates[i]) {
+          const nlo = f > 0 ? Math.min(lo, f) : lo; const nhi = f > 0 ? Math.max(hi, f) : hi;
+          if (nhi - nlo > maxSpan && nlo !== Infinity) continue;
+          fr[i] = f; walk(i + 1, nlo, nhi, mutedSoFar);
+        }
+      };
+      walk(0, Infinity, 0, 0);
     }
     out.sort((x, y) => x.cost - y.cost);
     voicingCache.set(cacheKey, out);
@@ -158,8 +225,8 @@
 
   function moveCost(a, b) {
     let m = 0;
-    for (let i = 0; i < 4; i++) {
-      if (a[i] === 0 || b[i] === 0) m += 0.4; else m += Math.abs(a[i] - b[i]);
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] <= 0 || b[i] <= 0) m += 0.4; else m += Math.abs(a[i] - b[i]);
     }
     return m;
   }
@@ -212,41 +279,48 @@
   /* Un pas de rythmique : b/d ↓ bas, h/u ↑ haut, majuscule ou ! fort, . doux, (b) à vide, b2 sur 2 cordes,
      x étouffé (xh vers le haut), p pouce, t frappe sur le bois, 2+1 cordes pincées, - silence. */
   const STROKE_DIR = { b: 'down', d: 'down', '↓': 'down', h: 'up', u: 'up', '↑': 'up' };
-  function parseStrumToken(tok) {
+  function parseStrumToken(tok, strings) {
+    const all = strings || 4;
     if (/^[-_]$/.test(tok)) return { type: 'rest' };
     if (/^[pP]$/.test(tok)) return { type: 'thumb' };
     if (/^[tT]$/.test(tok)) return { type: 'tap' };
-    if (/^[1-4](\+[1-4])*$/.test(tok)) return { type: 'pick', strings: [...new Set(tok.split('+').map(Number))] };
+    if (/^[1-6](\+[1-6])*$/.test(tok) && tok.split('+').every((x) => +x <= all)) return { type: 'pick', strings: [...new Set(tok.split('+').map(Number))] };
     const chunk = /^[xX]([bdhu↓↑])?$/i.exec(tok);
     if (chunk) return { type: 'chunk', dir: chunk[1] ? STROKE_DIR[chunk[1].toLowerCase()] : 'down' };
     const ghost = /^\((.+)\)$/.exec(tok);
-    const m = /^([bdhuBDHU↓↑])([1-3])?([.!])?$/.exec(ghost ? ghost[1] : tok);
+    const m = /^([bdhuBDHU↓↑])([1-6])?([.!])?$/.exec(ghost ? ghost[1] : tok);
     if (!m) return null;
     const upper = m[1] !== m[1].toLowerCase();
     const level = ghost ? 'ghost' : m[3] === '.' ? 'soft' : (m[3] === '!' || upper) ? 'strong' : 'normal';
-    return { type: 'stroke', dir: STROKE_DIR[m[1].toLowerCase()], level, count: m[2] ? +m[2] : 4 };
+    return { type: 'stroke', dir: STROKE_DIR[m[1].toLowerCase()], level, count: m[2] ? Math.min(+m[2], all) : all };
   }
-  function strumToText(s) {
+  function strumToText(s, strings) {
+    const all = strings || 4;
     if (s.type === 'thumb') return 'p';
     if (s.type === 'tap') return 't';
     if (s.type === 'pick') return s.strings.join('+');
     if (s.type === 'chunk') return s.dir === 'up' ? 'xh' : 'x';
     if (s.type !== 'stroke') return '-';
-    const body = (s.dir === 'up' ? 'h' : 'b') + (s.count < 4 ? s.count : '');
+    const body = (s.dir === 'up' ? 'h' : 'b') + (s.count < all ? s.count : '');
     if (s.level === 'ghost') return '(' + body + ')';
     if (s.level === 'strong') return body[0].toUpperCase() + body.slice(1);
     return body + (s.level === 'soft' ? '.' : '');
   }
   /* Les cordes sont frappées dans l'ordre du geste : un coup court vers le bas ne touche que les cordes du haut du manche. */
   function strumNotes(s, frets) {
+    const n = frets.length;
     const note = (i, muted) => (muted ? { string: i, fret: 0, muted: true } : { string: i, fret: frets[i] });
+    const sounding = frets.map((f, i) => i).filter((i) => frets[i] >= 0); // guitare : les cordes muettes de l'accord ne sont pas jouées
+    const bass = sounding[0];
+    const playable = (i) => Math.min(sounding[sounding.length - 1], Math.max(bass, i));
     if (s.type === 'rest') return { notes: [], strum: null };
     if (s.type === 'tap') return { notes: [], strum: s };
-    if (s.type === 'thumb') return { notes: [note(0)], strum: s };
-    if (s.type === 'pick') return { notes: s.strings.map((n) => note(4 - n)), strum: s };
+    if (s.type === 'thumb') return { notes: [note(bass)], strum: s };
+    if (s.type === 'pick') return { notes: [...new Set(s.strings.map((k) => playable(n - k)))].map((i) => note(i)), strum: s };
     if (s.level === 'ghost') return { notes: [], strum: s };
-    const order = s.dir === 'up' ? [3, 2, 1, 0] : [0, 1, 2, 3];
-    return { notes: order.slice(0, s.type === 'chunk' ? 4 : s.count).map((i) => note(i, s.type === 'chunk')), strum: s };
+    if (s.type === 'chunk') { const every = frets.map((f, i) => i); return { notes: (s.dir === 'up' ? every.reverse() : every).map((i) => note(i, true)), strum: s }; }
+    const order = s.dir === 'up' ? sounding.slice().reverse() : sounding;
+    return { notes: order.slice(0, s.count).map((i) => note(i)), strum: s };
   }
   /* Compteur sous les flèches : 1 & 2 & en noires, 1 2 3 4 5 6 en 6/8. */
   function beatLabel(start, meterKey) {
@@ -255,17 +329,19 @@
     return start % 4 === 0 ? String(start / 4 + 1) : start % 4 === 2 ? '&' : '';
   }
 
-  function parsePattern(text, kind) {
+  /* strings : nombre de cordes de l'instrument (4 par défaut). En arpège par cordes, B désigne la basse de l'accord. */
+  function parsePattern(text, kind, strings) {
+    const all = strings || 4;
     if (kind === 'strum') {
       const errors = [];
       const steps = String(text || '').trim().split(/[\s,]+/).filter(Boolean).map((tok) => {
-        const s = parseStrumToken(tok);
+        const s = parseStrumToken(tok, all);
         if (!s) errors.push(tok);
         return s || { type: 'rest' };
       });
       return { steps, errors };
     }
-    const valid = kind === 'degrees' ? /^(T|3|5|7)$/ : /^[1-4]$/;
+    const valid = kind === 'degrees' ? { test: (p) => /^(T|3|5|7)$/.test(p) } : { test: (p) => p === 'B' || (/^[1-6]$/.test(p) && +p <= all) };
     const errors = [];
     const steps = String(text || '').trim().split(/[\s,]+/).filter(Boolean).map((tok) => {
       if (/^[-.xX_]$/.test(tok)) return [];
@@ -279,13 +355,13 @@
 
   function degreeOfString(frets, i, chord, tuning) {
     const refRoot = (chord.root - tuning.offset + 120) % 12;
-    return ((REF_OPEN[i] + frets[i] - refRoot) % 12 + 12) % 12;
+    return ((tuning.ref[i] + frets[i] - refRoot) % 12 + 12) % 12;
   }
 
   /* Trouve la corde qui porte le degré voulu dans le doigté retenu (avec repli si la note manque). */
   function stringForDegree(token, frets, chord, tuning) {
-    const iv = frets.map((_, i) => degreeOfString(frets, i, chord, tuning));
-    const pitches = frets.map((f, i) => tuning.midi[i] + f);
+    const iv = frets.map((f, i) => (f < 0 ? -1 : degreeOfString(frets, i, chord, tuning)));
+    const pitches = frets.map((f, i) => (f < 0 ? Infinity : tuning.midi[i] + f));
     const lookup = {
       T: [0], 3: [3, 4, 2, 5], 5: [7, 6, 8], 7: [10, 11, 9, 2],
     }[token];
@@ -294,17 +370,18 @@
       if (hits.length) return hits.reduce((a, b) => (pitches[b] < pitches[a] ? b : a));
     }
     // Note absente : la corde la plus aiguë pour 7, la plus grave sinon.
-    const order = pitches.map((_, i) => i).sort((a, b) => pitches[a] - pitches[b]);
-    return token === '7' ? order[3] : order[0];
+    const order = pitches.map((_, i) => i).filter((i) => frets[i] >= 0).sort((a, b) => pitches[a] - pitches[b]);
+    return token === '7' ? order[order.length - 1] : order[0];
   }
 
   /* cfg.sections, s'il existe, donne à chaque partie ses accords et son motif ; sinon tout le morceau est une seule partie. */
   function buildScore(cfg) {
     const meter = METERS[cfg.meter] || METERS['4/4'];
-    const tuningKey = TUNINGS[cfg.tuning] ? cfg.tuning : 'standard';
+    const tuningKey = Object.prototype.hasOwnProperty.call(TUNINGS, cfg.tuning) ? cfg.tuning : 'standard';
     const tuning = TUNINGS[tuningKey];
+    const N = tuning.midi.length;
     const sections = (cfg.sections && cfg.sections.length ? cfg.sections : [cfg]).map((s) => ({
-      name: s.name || '', kind: s.patternKind, subdivision: s.subdivision, parsed: parseChordText(s.chords), pat: parsePattern(s.pattern, s.patternKind),
+      name: s.name || '', kind: s.patternKind, subdivision: s.subdivision, parsed: parseChordText(s.chords), pat: parsePattern(s.pattern, s.patternKind, N),
     }));
     const unknown = sections.flatMap((s) => s.parsed.unknown);
     const patErrors = sections.flatMap((s) => s.pat.errors);
@@ -340,7 +417,11 @@
             if (notes.length || label || strum) events.push({ start: s * stepUnits, dur: stepUnits, notes, chord: label, frets: label ? v.frets : null, strum });
             continue;
           }
-          const strs = [...new Set(tok.map((t) => (sec.kind === 'degrees' ? stringForDegree(t, v.frets, chord, tuning) : 4 - +t)))];
+          // Corde muette dans ce doigté (guitare) ou « B » : c'est la basse de l'accord qui est jouée.
+          const bass = v.frets.findIndex((f) => f >= 0);
+          const last = v.frets.length - 1 - v.frets.slice().reverse().findIndex((f) => f >= 0);
+          const byNumber = (t) => (t === 'B' ? bass : Math.min(last, Math.max(bass, N - +t)));
+          const strs = [...new Set(tok.map((t) => (sec.kind === 'degrees' ? stringForDegree(t, v.frets, chord, tuning) : byNumber(t))))];
           if (strs.length || label) {
             events.push({ start: s * stepUnits, dur: stepUnits, notes: strs.map((i) => ({ string: i, fret: v.frets[i] })), chord: label, frets: label ? v.frets : null });
           }
@@ -422,7 +503,7 @@
         scoreDiagrams: c.scoreDiagrams === true, overrides: {}, sections: null,
       };
       if (c.overrides && typeof c.overrides === 'object') {
-        Object.entries(c.overrides).slice(0, 100).forEach(([k, v]) => { if (k.length <= 20 && typeof v === 'string' && /^[0-9a-z]{4}$/.test(v)) cfg.overrides[k] = v; });
+        Object.entries(c.overrides).slice(0, 100).forEach(([k, v]) => { if (k.length <= 20 && typeof v === 'string' && /^([0-9a-z]{4}|[0-9a-wx]{6})$/.test(v)) cfg.overrides[k] = v; });
       }
       if (Array.isArray(c.sections) && c.sections.length) {
         cfg.sections = c.sections.slice(0, 40).filter((x) => x && typeof x === 'object')
@@ -433,26 +514,28 @@
     if (o.imported && typeof o.imported === 'object' && Array.isArray(o.imported.bars)) {
       const meter = own(METERS, o.imported.meter) ? o.imported.meter : '4/4';
       const units = METERS[meter].units;
+      const tuningKey = own(TUNINGS, o.imported.tuning) ? o.imported.tuning : 'standard';
+      const N = stringCount(tuningKey);
       const bars = o.imported.bars.slice(0, 2000).map((b) => {
         const events = (b && Array.isArray(b.events) ? b.events : []).slice(0, 64).filter((e) => e && typeof e === 'object').map((e) => {
           const start = clamp(e.start, 0, units - 1, 0);
           const ev = { start, dur: clamp(e.dur, 1, units - start, 1), notes: [] };
-          (Array.isArray(e.notes) ? e.notes : []).slice(0, 4).forEach((n) => {
-            const str = n && typeof n === 'object' ? clamp(n.string, 0, 3, -1) : -1;
+          (Array.isArray(e.notes) ? e.notes : []).slice(0, N).forEach((n) => {
+            const str = n && typeof n === 'object' ? clamp(n.string, 0, N - 1, -1) : -1;
             if (str < 0 || ev.notes.some((x) => x.string === str)) return;
             ev.notes.push(n.muted === true ? { string: str, fret: 0, muted: true } : { string: str, fret: clamp(n.fret, 0, 24, 0) });
           });
           if (typeof e.chord === 'string' && e.chord) ev.chord = e.chord.slice(0, 16);
-          if (Array.isArray(e.frets) && e.frets.length === 4) ev.frets = e.frets.map((f) => clamp(f, 0, 24, 0));
+          if (Array.isArray(e.frets) && e.frets.length === N) ev.frets = e.frets.map((f) => clamp(f, N > 4 ? -1 : 0, 24, 0));
           if (e.strum && typeof e.strum === 'object') {
-            try { const st = parseStrumToken(strumToText(e.strum)); if (st && st.type !== 'rest') ev.strum = st; } catch (x) { /* geste inconnu : ignoré */ }
+            try { const st = parseStrumToken(strumToText(e.strum, N), N); if (st && st.type !== 'rest') ev.strum = st; } catch (x) { /* geste inconnu : ignoré */ }
           }
           return ev;
         });
         return typeof b.section === 'string' && b.section ? { events, section: b.section.slice(0, 60) } : { events };
       });
       if (!bars.length) throw new Error('morceau vide');
-      return { title, imported: { title, meter, tuning: own(TUNINGS, o.imported.tuning) ? o.imported.tuning : 'standard', bars, voicings: [], problems: [], source: 'imported', lyricsText: clip(o.lyrics, 20000) } };
+      return { title, imported: { title, meter, tuning: tuningKey, bars, voicings: [], problems: [], source: 'imported', lyricsText: clip(o.lyrics, 20000) } };
     }
     throw new Error('morceau vide');
   }
@@ -568,25 +651,28 @@
   }
 
   /* ---------- Sortie texte ---------- */
-  function strumSymbol(s) {
+  function strumSymbol(s, strings) {
+    const all = strings || 4;
     if (!s || s.type === 'pick') return '';
     if (s.type === 'thumb') return 'p';
     if (s.type === 'tap') return 't';
     const arrow = s.dir === 'up' ? '↑' : '↓';
     if (s.type === 'chunk') return arrow + 'x';
     if (s.level === 'ghost') return '(' + arrow + ')';
-    return arrow + (s.count < 4 ? s.count : '') + (s.level === 'strong' ? '>' : s.level === 'soft' ? '·' : '');
+    return arrow + (s.count < all ? s.count : '') + (s.level === 'strong' ? '>' : s.level === 'soft' ? '·' : '');
   }
   const STRUM_LEGEND = [
-    [/[↓↑]/, '↓ bas, ↑ haut'], [/>/, '> fort'], [/·/, '· doux'], [/\(/, '(↓) à vide'], [/[↓↑][123]/, '↓2 sur 2 cordes'],
+    [/[↓↑]/, '↓ bas, ↑ haut'], [/>/, '> fort'], [/·/, '· doux'], [/\(/, '(↓) à vide'], [/[↓↑][1-5]/, '↓2 sur 2 cordes'],
     [/[↓↑]x/, '↓x étouffé'], [/(^|\s)p(\s|$)/, 'p pouce'], [/(^|\s)t(\s|$)/, 't frappe sur le bois'],
   ];
 
   function scoreToText(score) {
-    const t = TUNINGS[score.tuning] || TUNINGS.standard;
+    const t = tuningOf(score.tuning);
+    const N = t.midi.length;
+    const rowsDown = t.midi.map((_, i) => N - 1 - i); // ligne du haut = corde la plus aiguë du manche
     const units = METERS[score.meter].units;
     const blocks = [];
-    const lines = () => ({ chord: '   ', strum: '   ', lyric: '', s: [3, 2, 1, 0].map((i) => t.names[i].padEnd(2).slice(0, 2) + '|') });
+    const lines = () => ({ chord: '   ', strum: '   ', lyric: '', s: rowsDown.map((i) => t.names[i].padEnd(2).slice(0, 2) + '|') });
     const lyrics = score.lyrics || [];
     let cur = lines();
     let allStrum = '';
@@ -611,11 +697,11 @@
       for (let u = 0; u < units; u += step) {
         const e = byStart.get(u);
         const label = e && e.chord ? e.chord : '';
-        const cell = [3, 2, 1, 0].map((i) => {
+        const cell = rowsDown.map((i) => {
           const n = e && e.notes.find((x) => x.string === i);
           return n ? (n.muted ? 'x' : String(n.fret)) : '';
         });
-        const stroke = e ? strumSymbol(e.strum) : '';
+        const stroke = e ? strumSymbol(e.strum, N) : '';
         const w = Math.max(3, label.length + 1, stroke.length + 1, ...cell.map((c) => c.length + 1));
         cur.chord += label.padEnd(w);
         cur.strum += stroke.padEnd(w);
@@ -680,14 +766,17 @@
     return cols.map((c) => Math.min(units - 1, Math.round((c - first) / (barEnd - first) * units)));
   }
 
-  function parseTabText(text, meterKey, title) {
+  /* Blocs de 4 lignes = ukulélé, de 6 lignes = guitare. prefer : nombre de cordes à retenir si le texte contient les deux. */
+  function parseTabText(text, meterKey, title, prefer) {
     const meter = METERS[meterKey] || METERS['4/4'];
     const blocks = findTabBlocks(text);
     if (!blocks.length) return null;
-    if (blocks.every((b) => b.length !== 4)) return { unsupported: Math.max(...blocks.map((b) => b.length)) };
+    const sizes = [4, 6].filter((k) => blocks.some((b) => b.length === k));
+    if (!sizes.length) return { unsupported: Math.max(...blocks.map((b) => b.length)) };
+    const L = sizes.includes(prefer) ? prefer : sizes[0];
     const bars = [];
     for (const blk of blocks) {
-      if (blk.length !== 4) continue;
+      if (blk.length !== L) continue;
       const bodies = blk.map(bodyOf);
       const len = Math.max(...bodies.map((b) => b.length));
       const notes = new Map();
@@ -697,7 +786,7 @@
         while ((m = re.exec(b))) {
           const col = m.index;
           if (!notes.has(col)) notes.set(col, []);
-          notes.get(col).push(/\d/.test(m[0]) ? { string: 3 - row, fret: +m[0] } : { string: 3 - row, fret: 0, muted: true });
+          notes.get(col).push(/\d/.test(m[0]) ? { string: L - 1 - row, fret: +m[0] } : { string: L - 1 - row, fret: 0, muted: true });
         }
         for (let i = 0; i < b.length; i++) if (b[i] === '|') barCols.add(i);
       });
@@ -731,7 +820,7 @@
       }
     }
     if (!bars.length) return null;
-    return { title: title || '', meter: meterKey in METERS ? meterKey : '4/4', tuning: 'standard', bars, voicings: [], problems: [], source: 'imported' };
+    return { title: title || '', meter: meterKey in METERS ? meterKey : '4/4', tuning: L === 6 ? 'guitar' : 'standard', bars, voicings: [], problems: [], source: 'imported' };
   }
 
   /* ---------- Import : grille d'accords ---------- */
@@ -761,12 +850,12 @@
     return { chordsText: out.join('\n'), count: parsed.bars.flat().length, title };
   }
 
-  function detectContent(text, meter) {
+  function detectContent(text, meter, prefer) {
     if (isMusicXml(text)) {
       const found = findChords(text);
       return found.count ? { type: 'chords', chordsText: found.chordsText, count: found.count, title: found.title } : { type: 'unknown' };
     }
-    const tab = parseTabText(text, meter);
+    const tab = parseTabText(text, meter, '', prefer);
     if (tab && tab.unsupported) return { type: 'unsupported-tab', strings: tab.unsupported };
     if (tab) return { type: 'tab', score: tab, count: tab.bars.length };
     const sheet = extractChordSheet(text);
@@ -837,7 +926,8 @@
 
   /* Déduit les accords d'une partition déjà lue : un accord par mesure, deux si la mesure change nettement à mi-parcours. */
   function detectChords(score, tuningKey) {
-    const tuning = TUNINGS[tuningKey] ? tuningKey : (score.tuning || 'standard');
+    // L'accordage demandé ne vaut que s'il a autant de cordes que la tablature lue.
+    const tuning = TUNINGS[tuningKey] && stringCount(tuningKey) === stringCount(score.tuning) ? tuningKey : (score.tuning || 'standard');
     const units = (METERS[score.meter] || METERS['4/4']).units;
     const canSplit = score.meter !== '3/4';
     const hist = new Array(12).fill(0);
@@ -962,7 +1052,7 @@
       return Object.assign({ source: 'score', count: d.bars.flat().length, title: mx.title }, d);
     }
     const sheet = extractChordSheet(text);
-    const tab = parseTabText(text, o.meter || '4/4');
+    const tab = parseTabText(text, o.meter || '4/4', '', o.tuning ? stringCount(o.tuning) : undefined);
     const hasTab = tab && tab.bars;
     if (sheet.count >= (hasTab ? 2 : 1)) return { source: 'written', chordsText: sheet.chordsText, count: sheet.count, title: sheet.title, uncertain: [] };
     if (!hasTab) return { source: 'none' };
@@ -971,21 +1061,22 @@
   }
 
   /* ---------- Hauteurs ---------- */
-  function midiOf(note, tuningKey) { return (TUNINGS[tuningKey] || TUNINGS.standard).midi[note.string] + note.fret; }
+  function midiOf(note, tuningKey) { return tuningOf(tuningKey).midi[note.string] + note.fret; }
 
   /* Son d'une corde nylon pincée au doigt, caisse de ukulélé comprise.
      Karplus-Strong étendu : accord exact (passe-tout fractionnaire), aigus amortis en secondes et non
      par période (sinon les notes graves sonnent métalliques), excitation douce pincée vers la rosace,
      puis résonances de caisse. Hasard déterministe : une même note sonne toujours pareil. */
   const WAVE_SECONDS = 2.6;
-  function pluckWave(midi, sr) {
+  function pluckWave(midi, sr, instrument) {
+    const guitar = instrument === 'guitar';
     let seed = (midi * 2654435761) >>> 0;
     const rnd = () => { seed = (seed + 0x6D2B79F5) >>> 0; let t = seed; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 * 2 - 1; };
     const f0 = 440 * Math.pow(2, (midi - 69) / 12);
     const N = sr / f0; const w0 = 2 * Math.PI * f0 / sr;
     const high = Math.min(1, Math.max(0, (midi - 57) / 24));
-    const t60 = 3 - 1.3 * high; // durée de résonance du fondamental
-    const t60Bright = 0.22; // vers 2,5 kHz, le nylon s'éteint vite
+    const t60 = (guitar ? 3.6 : 3) - 1.3 * high; // durée de résonance du fondamental
+    const t60Bright = guitar ? 0.3 : 0.22; // vers 2,5 kHz, le nylon s'éteint vite
     // Filtre de boucle à un pôle : p tel que 2,5 kHz perde 60 dB en t60Bright.
     const wB = 2 * Math.PI * Math.min(2500, sr / 4) / sr;
     const wantB = Math.pow(0.001, 1 / (f0 * t60Bright));
@@ -1019,11 +1110,20 @@
     const nA = Math.floor(sr * 0.006);
     for (let n = 0; n < nA; n++) out[n] += 0.08 * rnd() * (1 - n / nA);
     // Caisse : coupe du très grave, résonance d'air, table, aigus adoucis.
-    biquad(out, sr, 'highpass', 85, 0.7, 0);
-    biquad(out, sr, 'peak', 290, 2.2, 6);
-    biquad(out, sr, 'peak', 520, 2, 3);
-    biquad(out, sr, 'peak', 1100, 1.5, -2);
-    biquad(out, sr, 'highshelf', 4500, 0.7, -8);
+    if (guitar) {
+      // Caisse de guitare : plus grande, donc résonances d'air et de table plus basses.
+      biquad(out, sr, 'highpass', 55, 0.7, 0);
+      biquad(out, sr, 'peak', 105, 2, 5);
+      biquad(out, sr, 'peak', 210, 2, 3);
+      biquad(out, sr, 'peak', 900, 1.5, -2);
+      biquad(out, sr, 'highshelf', 5000, 0.7, -7);
+    } else {
+      biquad(out, sr, 'highpass', 85, 0.7, 0);
+      biquad(out, sr, 'peak', 290, 2.2, 6);
+      biquad(out, sr, 'peak', 520, 2, 3);
+      biquad(out, sr, 'peak', 1100, 1.5, -2);
+      biquad(out, sr, 'highshelf', 4500, 0.7, -8);
+    }
     // Attaque sans clic, fin de son en fondu ; niveau calé sur le début de la note.
     const nIn = Math.floor(sr * 0.002); const nOut = Math.floor(sr * 0.4);
     for (let n = 0; n < nIn; n++) out[n] *= n / nIn;
@@ -1076,7 +1176,7 @@
     return u;
   }
 
-  const api = { TUNINGS, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
