@@ -76,13 +76,14 @@
   }
 
   /* Le manche vu par le joueur, comme sur une tablature : corde aiguë en haut.
-     Seules les cases appuyées sont dessinées, de la plus basse à la plus haute ; le sillet n'apparaît que si la case 1 en fait partie. */
+     Le manche part toujours du sillet et s'arrête à la dernière case appuyée : les cases vides avant l'accord restent visibles.
+     Pour un accord haut sur le manche, les cases se resserrent afin que l'image garde une largeur raisonnable. */
   function neckView(frets, tuningKey) {
     const tuning = C.TUNINGS[tuningKey] || C.TUNINGS.standard;
     const pressed = frets.filter((f) => f > 0);
-    const base = pressed.length ? Math.min(...pressed) : 1;
-    const cols = pressed.length ? Math.max(...pressed) - base + 1 : 1;
-    const n = frets.length; const colW = 62; const gap = n > 4 ? 19 : 25;
+    const base = 1;
+    const cols = pressed.length ? Math.max(...pressed) : 1;
+    const n = frets.length; const colW = Math.max(30, Math.min(62, Math.round(330 / cols))); const gap = n > 4 ? 19 : 25;
     const left = 46; const top = 18; const boardH = gap * (n - 1) + 22; const w = left + colW * cols + 16; const h = top + boardH + 26;
     const svg = el('svg', { viewBox: '0 0 ' + w + ' ' + h, width: w, height: h, role: 'img', 'aria-label': 'Position des doigts sur le manche' });
     const fg = fingering(frets);
@@ -95,9 +96,9 @@
       const f = base + c;
       if (dots.includes(f)) el('circle', { cx: left + (c + 0.5) * colW, cy: top + boardH / 2, r: 5, fill: '#e9dfc8', 'fill-opacity': 0.75 }, svg);
       el('rect', { x: left + (c + 1) * colW - 2, y: top, width: 4, height: boardH, fill: '#c9c4b8' }, svg);
-      const t = el('text', { x: left + (c + 0.5) * colW, y: top + boardH + 17, 'text-anchor': 'middle', 'font-size': 11, 'font-family': 'Arial, sans-serif', fill: '#6d675b' }, svg); t.textContent = 'case ' + f;
+      const t = el('text', { x: left + (c + 0.5) * colW, y: top + boardH + 17, 'text-anchor': 'middle', 'font-size': 11, 'font-family': 'Arial, sans-serif', fill: '#6d675b' }, svg); t.textContent = (colW >= 50 ? 'case ' : '') + f;
     }
-    if (base === 1) el('rect', { x: left - 7, y: top - 1, width: 8, height: boardH + 2, rx: 2, fill: '#f3ecdc', stroke: '#9a927f' }, svg);
+    el('rect', { x: left - 7, y: top - 1, width: 8, height: boardH + 2, rx: 2, fill: '#f3ecdc', stroke: '#9a927f' }, svg);
     for (let i = 0; i < n; i++) {
       const thick = n > 4 ? 3.2 - i * 0.42 : 2.2;
       el('line', { x1: left - 7, x2: left + colW * cols, y1: sy(i), y2: sy(i), stroke: frets[i] < 0 ? '#8b8475' : '#efe6cf', 'stroke-width': Math.max(1.1, thick), 'stroke-opacity': frets[i] < 0 ? 0.6 : 1 }, svg);
