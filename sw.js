@@ -1,6 +1,6 @@
 /* Généré par tools/build-web.js */
 'use strict';
-const CACHE = "arpege-2.1.0-apercu-3";
+const CACHE = "arpege-2.2.0-apercu-1";
 const FILES = ["./","app.js","chords.js","core.js","gp.js","icon-512.png","img/guitare.jpg","img/ukulele.jpg","import.js","index.html","manifest.webmanifest","score.js","style.css","update.js","vendor/LICENSE.vexflow.txt","vendor/vexflow.js","version.txt","video.js","web.js"];
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES))));
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys()

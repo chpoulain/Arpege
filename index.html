@@ -31,7 +31,38 @@
 </header>
 
 <main>
-  <section id="tab-create" class="screen">
+  <section id="tab-grid" class="screen">
+    <h2>Les accords du morceau</h2>
+    <label class="field">
+      <span class="lbl">Grille d'accords</span>
+      <textarea id="chords" class="mono" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Couplet]&#10;Am F | C G&#10;&#10;[Refrain]&#10;F | C | G | G"></textarea>
+      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>x2</code> en fin de ligne répète. <code>[Couplet]</code> ouvre une partie, qui pourra avoir son propre arpège ou rythme. Do Ré Mi… acceptés.</span>
+    </label>
+    <p id="chord-msg" class="msg" hidden></p>
+    <div id="grid-view" class="grid-view"></div>
+    <div class="options">
+      <label><span class="lbl">Mesure</span><select id="meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
+      <label><span class="lbl">Transposer</span><select id="transpose"></select></label>
+    </div>
+    <details id="grid-helper" class="lyrics-box">
+      <summary>Pas d'idée ? Proposer une grille</summary>
+      <div class="options">
+        <label><span class="lbl">Mode</span><select id="grid-mode"><option value="major">Majeur</option><option value="minor">Mineur</option></select></label>
+        <label><span class="lbl">Tonalité</span><select id="grid-key"></select></label>
+        <label><span class="lbl">Style</span><select id="grid-style"></select></label>
+        <label><span class="lbl">Structure</span><select id="grid-form"><option value="loop">Une seule grille</option><option value="verseChorus">Couplet, refrain</option><option value="song">Couplet, refrain, deux fois</option><option value="full">Avec un pont</option></select></label>
+        <label><span class="lbl">Mesures par partie</span><select id="grid-bars"><option>4</option><option>8</option></select></label>
+        <label><span class="lbl">Accords par mesure</span><select id="grid-perbar"><option>1</option><option>2</option></select></label>
+      </div>
+      <button type="button" id="grid-propose" class="btn">Proposer une grille</button>
+      <p class="hint">La proposition remplace la grille écrite au-dessus. Chaque appui propose un autre enchaînement, avec un arpège ou un rythme adapté au style.</p>
+    </details>
+    <button type="button" id="generate-grid" class="cta">Générer la partition</button>
+    <button type="button" class="btn wide gap" data-goto="create">Choisir l'arpège ou le rythme</button>
+  </section>
+
+  <section id="tab-create" class="screen" hidden>
+    <h2>La façon de jouer</h2>
     <div class="row-between instrument-row">
       <span class="lbl">Instrument</span>
       <div class="seg" role="group" aria-label="Instrument">
@@ -39,13 +70,6 @@
         <button type="button" data-instrument="guitar">Guitare</button>
       </div>
     </div>
-    <label class="field">
-      <span class="lbl">Accords</span>
-      <textarea id="chords" rows="3" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="Am F C G"></textarea>
-      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>x2</code> en fin de ligne répète. Do Ré Mi… acceptés.</span>
-    </label>
-    <p id="chord-msg" class="msg" hidden></p>
-
     <div class="field">
       <div class="row-between">
         <span class="lbl">Motif d'arpège ou de rythme</span>
@@ -86,51 +110,26 @@
       </label>
     </div>
 
+    <div id="parts" class="field" hidden>
+      <span class="lbl">Un motif par partie</span>
+      <p class="hint">La grille a plusieurs parties : chacune peut garder ton motif ou prendre un motif prêt, un arpège au couplet et un rythme au refrain par exemple.</p>
+      <label class="inline"><span>Partout</span><select id="grid-all"></select></label>
+      <div id="grid-models"></div>
+    </div>
     <div class="options">
-      <label><span class="lbl">Mesure</span><select id="meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
       <label><span class="lbl">Valeur d'un pas</span><select id="subdivision"><option value="8">Croche</option><option value="16">Double-croche</option></select></label>
       <label><span class="lbl" id="tuning-label">Accordage</span><select id="tuning"></select></label>
-      <label><span class="lbl">Transposer</span><select id="transpose"></select></label>
       <label><span class="lbl">Doigtés</span><select id="mode"><option value="easy">Les plus simples</option><option value="smooth">Le moins de déplacement</option><option value="position">Autour d'une case</option></select></label>
       <label id="position-wrap" hidden><span class="lbl">Case visée</span><input id="position" type="number" min="0" max="12" value="5" inputmode="numeric"></label>
     </div>
-    <button type="button" id="generate" class="cta">Générer la tablature</button>
+    <button type="button" id="generate" class="cta">Générer la partition</button>
+    <button type="button" class="btn wide gap" data-goto="grid">Revenir aux accords</button>
   </section>
 
   <div id="update-banner" class="update-banner" hidden role="status">
     <span id="update-text"></span>
     <span class="update-actions"><button type="button" id="update-install" class="btn">Mettre à jour</button> <button type="button" id="update-later" class="btn">Plus tard</button></span>
   </div>
-
-  <section id="tab-grid" class="screen" hidden>
-    <h2>Grille d'accords</h2>
-    <div class="options">
-      <label><span class="lbl">Mode</span><select id="grid-mode"><option value="major">Majeur</option><option value="minor">Mineur</option></select></label>
-      <label><span class="lbl">Tonalité</span><select id="grid-key"></select></label>
-      <label><span class="lbl">Style</span><select id="grid-style"></select></label>
-      <label><span class="lbl">Structure</span><select id="grid-form"><option value="loop">Une seule grille</option><option value="verseChorus">Couplet, refrain</option><option value="song">Couplet, refrain, deux fois</option><option value="full">Avec un pont</option></select></label>
-      <label><span class="lbl">Mesures par partie</span><select id="grid-bars"><option>4</option><option>8</option></select></label>
-      <label><span class="lbl">Accords par mesure</span><select id="grid-perbar"><option>1</option><option>2</option></select></label>
-      <label><span class="lbl">Mesure</span><select id="grid-meter"><option>4/4</option><option>3/4</option><option>2/4</option><option>6/8</option></select></label>
-    </div>
-    <button type="button" id="grid-propose" class="cta">Proposer une grille</button>
-    <p class="hint">Chaque appui propose un autre enchaînement.</p>
-    <div id="grid-result" hidden>
-      <div id="grid-view" class="grid-view"></div>
-      <p id="grid-msg" class="msg" hidden></p>
-      <h2>Décliner en arpège ou en rythme</h2>
-      <p class="hint">Choisis un modèle pour chaque partie : un arpège au couplet et un rythme au refrain, par exemple.</p>
-      <label class="inline"><span>Partout</span><select id="grid-all"></select></label>
-      <div id="grid-models"></div>
-      <button type="button" id="grid-build" class="cta gap">Générer la partition</button>
-    </div>
-    <label class="field gap">
-      <span class="lbl">Écrire ou modifier la grille</span>
-      <textarea id="grid-text" class="mono" rows="8" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Couplet]&#10;C | G | Am | F&#10;&#10;[Refrain]&#10;F | C | G | G"></textarea>
-      <span class="hint"><code>[Couplet]</code> ouvre une partie, <code>|</code> sépare les mesures.</span>
-    </label>
-    <button type="button" id="grid-from-create" class="btn">Reprendre les accords de la page Créer</button>
-  </section>
 
   <section id="tab-chords" class="screen" hidden>
     <h2 id="chords-title">Accords</h2>
@@ -178,7 +177,7 @@
   <section id="tab-score" class="screen" hidden>
     <div id="empty-score" class="empty">
       <p>Pas encore de partition.</p>
-      <button type="button" class="btn" data-goto="create">Saisir des accords</button>
+      <button type="button" class="btn" data-goto="grid">Saisir des accords</button>
     </div>
     <div id="score-area" hidden>
       <div class="toolbar no-print">
@@ -254,8 +253,8 @@
 </main>
 
 <nav class="bottom" aria-label="Navigation">
-  <button type="button" data-goto="create">Créer</button>
   <button type="button" data-goto="grid">Grille</button>
+  <button type="button" data-goto="create">Motif</button>
   <button type="button" data-goto="chords">Accords</button>
   <button type="button" data-goto="import">Importer</button>
   <button type="button" data-goto="score">Partition</button>

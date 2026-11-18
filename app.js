@@ -109,12 +109,14 @@
     state.lastTuning = Object.assign({}, state.lastTuning, { [inst()]: state.tuning });
     const back = state.lastTuning[name];
     state.tuning = back && C.TUNINGS[back] && C.TUNINGS[back].instrument === name ? back : C.INSTRUMENTS[name].tuning;
-    state.overrides = {}; state.sections = null;
+    state.overrides = {};
     const after = presets();
     const same = known && after.find((p) => p.name === known.name);
     if (same) state.pattern = same.p;
     else if (strum) state.pattern = strum.map((s) => C.strumToText(s.type === 'stroke' && s.count >= oldN ? Object.assign({}, s, { count: N() }) : s, N())).join(' ');
     else if (state.patternKind === 'strings') state.pattern = after.find((p) => p.kind === 'strings').p;
+    // Les parties gardent leur motif s'il existe pour cet instrument, sinon elles prennent « mon motif ».
+    if (state.sections) state.sections = songSections().map(sectionFromModel);
     syncForm(); saveDraft();
     if (score && !importedScore && score.bars.length) { score = C.buildScore(state); if (!$('tab-score').hidden) drawScore(); }
     if (!$('tab-chords').hidden) K.render(state.tuning);
@@ -129,7 +131,7 @@
     $('tempo').value = state.tempo; tempoLabel();
     $('position-wrap').hidden = state.mode !== 'position';
     document.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.patternKind));
-    kindHint(); drawGrid(); checkChords();
+    kindHint(); drawGrid(); checkChords(); drawGridPage();
   }
   function kindHint() {
     $('kind-hint').textContent = state.patternKind === 'strum'
@@ -145,7 +147,7 @@
   ['title', 'chords', 'pattern'].forEach((k) => $(k).addEventListener('input', () => {
     state[k] = $(k).value;
     if (k === 'pattern') drawGrid();
-    if (k === 'chords') checkChords();
+    if (k === 'chords') { checkChords(); drawGridView(); }
     saveDraft();
   }));
   ['meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position'].forEach((k) => $(k).addEventListener('change', () => {
@@ -167,7 +169,7 @@
     $('opt-start').checked = prefs.askInstrument;
     setInstrument(b.dataset.start);
     $('start').hidden = true;
-    goto('create');
+    goto('grid');
   }));
   $('opt-start').checked = prefs.askInstrument;
   $('opt-start').addEventListener('change', () => { prefs.askInstrument = $('opt-start').checked; store.set('prefs', prefs); });
@@ -180,7 +182,7 @@
     state.chords = (state.chords.trim() ? state.chords.trim() + ' ' : '') + label;
     state.overrides[label] = shape; state.sections = null;
     $('chords').value = state.chords; checkChords(); saveDraft();
-    toast(label + ' ajouté aux accords de la page Créer');
+    drawGridView(); toast(label + ' ajouté à la grille');
   };
   document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
     if (state.patternKind === b.dataset.kind) return;
@@ -196,10 +198,13 @@
     if (p.sub) state.subdivision = p.sub; else if (p.kind === 'strum') state.subdivision = '8';
     syncForm(); saveDraft();
   });
+  /* Les parties de la grille : [Couplet] en ouvre une. Sans titre, tout le morceau est une seule partie. */
+  const songSections = () => C.parseGridText(state.chords);
   function checkChords() {
-    const r = C.parseChordText(state.chords);
-    if (r.unknown.length) setMsg($('chord-msg'), 'Non reconnu : ' + [...new Set(r.unknown)].join(', '), 'warn');
-    else setMsg($('chord-msg'), r.bars.length ? r.bars.length + ' mesure' + (r.bars.length > 1 ? 's' : '') : '');
+    const parts = songSections().map((sec) => C.parseChordText(sec.chords));
+    const unknown = parts.flatMap((r) => r.unknown); const bars = parts.reduce((n, r) => n + r.bars.length, 0);
+    if (unknown.length) setMsg($('chord-msg'), 'Non reconnu : ' + [...new Set(unknown)].join(', '), 'warn');
+    else setMsg($('chord-msg'), bars ? bars + ' mesure' + (bars > 1 ? 's' : '') + (parts.length > 1 ? ' en ' + parts.length + ' parties' : '') : '');
   }
 
   /* ---------- grille du motif ---------- */
@@ -300,13 +305,19 @@
   $('step-minus').addEventListener('click', () => { const s = C.parsePattern(state.pattern, state.patternKind, N()).steps; if (s.length > 1) { s.pop(); writePattern(s); } });
 
   /* ---------- génération ---------- */
+  /* Une seule génération pour les deux pages : la grille donne les accords et les parties, la page Motif la façon de les jouer. */
   function generate() {
-    state.sections = null; // la page Créer repart d'un motif unique
+    const sections = songSections();
+    const named = sections.length > 1 || sections.some((sec) => sec.name);
+    state.sections = named ? sections.map(sectionFromModel) : null;
+    if (!named && sections.length) { const flat = sections[0].chords.trim(); if (flat !== state.chords.trim()) { state.chords = flat; $('chords').value = flat; } }
     importedScore = null;
     score = C.buildScore(state);
+    saveDraft();
     goto('score');
   }
   $('generate').addEventListener('click', generate);
+  $('generate-grid').addEventListener('click', generate);
 
   function drawScore() {
     const has = score && score.bars.length;
@@ -411,7 +422,7 @@
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
   $('sheet-auto').addEventListener('click', () => { delete state.overrides[sheetChord]; applySheet(); });
-  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-create').hidden) { goto('create'); return true; } return false; };
+  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-grid').hidden) { goto('grid'); return true; } return false; };
 
   /* ---------- grille d'accords ---------- */
   const KEYS = { major: ['C', 'D', 'Eb', 'E', 'F', 'G', 'A', 'Bb'], minor: ['A', 'B', 'C', 'D', 'E', 'F#', 'G'] };
@@ -419,7 +430,7 @@
   function fillModelSelect(sel, withKeep) {
     sel.innerHTML = '';
     if (withKeep) sel.add(new Option('Choisir…', ''));
-    sel.add(new Option('Mon motif (page Créer)', MINE));
+    sel.add(new Option('Mon motif (ci-dessus)', MINE));
     [['strings', 'Arpèges par cordes'], ['degrees', 'Arpèges par notes'], ['strum', 'Rythmiques']].forEach(([kind, label]) => {
       const group = document.createElement('optgroup'); group.label = label;
       presets().filter((p) => p.kind === kind).forEach((p) => group.appendChild(new Option(p.name, p.name)));
@@ -433,27 +444,20 @@
     KEYS[g.mode].forEach((k) => $('grid-key').add(new Option(k + (g.mode === 'minor' ? 'm' : ''), k)));
     $('grid-key').value = g.key;
   }
-  function gridModel(name) {
-    const g = state.grid;
-    if (g.models[name]) return g.models[name];
-    const style = C.GRID_STYLES[g.style];
-    return style.models[name] || style.models.Couplet;
-  }
+  /* Motif d'une partie : celui choisi pour elle, sinon « mon motif ». */
+  function gridModel(name) { return state.grid.models[name] || MINE; }
   function drawGridPage() {
     const g = state.grid;
     $('grid-mode').value = g.mode; fillKeys();
     $('grid-style').value = g.style; $('grid-form').value = g.form; $('grid-bars').value = String(g.bars); $('grid-perbar').value = String(g.perBar);
-    $('grid-meter').value = state.meter;
-    if ($('grid-text').value !== g.text) $('grid-text').value = g.text;
     drawGridView();
   }
+  /* La grille dessinée (page Grille) et le choix d'un motif par partie (page Motif). */
   function drawGridView() {
-    const sections = C.parseGridText(state.grid.text);
+    const sections = songSections();
     const view = $('grid-view'); view.innerHTML = '';
-    const unknown = [];
     sections.forEach((sec) => {
       const parsed = C.parseChordText(sec.chords);
-      unknown.push(...parsed.unknown);
       if (sec.name) { const h = document.createElement('div'); h.className = 'grid-name'; h.textContent = sec.name; view.appendChild(h); }
       const row = document.createElement('div'); row.className = 'grid-bars';
       parsed.bars.forEach((bar) => {
@@ -463,28 +467,33 @@
       });
       view.appendChild(row);
     });
-    setMsg($('grid-msg'), unknown.length ? 'Non reconnu : ' + [...new Set(unknown)].join(', ') : '', 'warn');
     const names = [...new Set(sections.map((s) => s.name))];
+    const several = sections.length > 1 || sections.some((sec) => sec.name);
+    $('parts').hidden = !several;
     const box = $('grid-models'); box.innerHTML = '';
+    if (!several) return;
     names.forEach((name) => {
       const label = document.createElement('label'); label.className = 'inline';
-      const span = document.createElement('span'); span.textContent = name || 'Toute la grille'; label.appendChild(span);
+      const span = document.createElement('span'); span.textContent = name || 'Début'; label.appendChild(span);
       const sel = document.createElement('select'); fillModelSelect(sel); sel.value = gridModel(name);
+      if (sel.value !== gridModel(name)) sel.value = MINE; // motif prêt d'un autre instrument
       sel.dataset.section = name;
       sel.addEventListener('change', () => { state.grid.models[name] = sel.value; saveDraft(); });
       label.appendChild(sel); box.appendChild(label);
     });
-    $('grid-result').hidden = !sections.length;
   }
   function proposeGrid() {
     const g = state.grid;
     const style = C.GRID_STYLES[g.style];
     if (style.meter && state.meter !== style.meter) { state.meter = style.meter; $('meter').value = state.meter; }
-    g.text = C.generateGrid(g);
+    state.chords = C.generateGrid(g).trim();
     g.seed = (g.seed || 0) + 1; // le prochain appui propose un autre enchaînement
+    // Le style propose un motif pour chaque partie ; il se change en page Motif.
     g.models = {};
-    $('grid-text').value = g.text;
-    drawGridView(); saveDraft();
+    songSections().forEach((sec) => { g.models[sec.name] = style.models[sec.name] || style.models.Couplet; });
+    state.overrides = {};
+    $('chords').value = state.chords;
+    checkChords(); drawGridView(); saveDraft();
   }
   function sectionFromModel(sec) {
     const value = gridModel(sec.name);
@@ -500,31 +509,15 @@
     const v = $('grid-' + k).value;
     state.grid[field] = k === 'bars' || k === 'perbar' ? +v : v;
     if (k === 'mode') fillKeys();
-    if (k === 'style' && C.GRID_STYLES[v].meter) { state.meter = C.GRID_STYLES[v].meter; $('grid-meter').value = state.meter; $('meter').value = state.meter; }
     saveDraft();
   }));
   $('grid-key').addEventListener('change', () => { state.grid.key = $('grid-key').value; saveDraft(); });
-  $('grid-meter').addEventListener('change', () => { state.meter = $('grid-meter').value; $('meter').value = state.meter; saveDraft(); });
   $('grid-propose').addEventListener('click', proposeGrid);
-  $('grid-text').addEventListener('input', () => { state.grid.text = $('grid-text').value; drawGridView(); saveDraft(); });
-  $('grid-from-create').addEventListener('click', () => { state.grid.text = state.chords.trim() + '\n'; $('grid-text').value = state.grid.text; drawGridView(); saveDraft(); });
   $('grid-all').addEventListener('change', () => {
     const v = $('grid-all').value;
     if (!v) return;
-    C.parseGridText(state.grid.text).forEach((s) => { state.grid.models[s.name] = v; });
+    songSections().forEach((s) => { state.grid.models[s.name] = v; });
     $('grid-all').value = ''; drawGridView(); saveDraft();
-  });
-  $('grid-build').addEventListener('click', () => {
-    const sections = C.parseGridText(state.grid.text);
-    if (!sections.length) return;
-    state.sections = sections.map(sectionFromModel);
-    // Les accords restent visibles en page Créer et dans la liste des morceaux.
-    state.chords = sections.map((s) => s.chords.trim()).join('\n'); $('chords').value = state.chords; checkChords();
-    state.overrides = {};
-    importedScore = null;
-    score = C.buildScore(state);
-    saveDraft();
-    goto('score');
   });
 
   /* ---------- lecture ---------- */
@@ -773,7 +766,16 @@
 
   function openSong(song) {
     if (song.imported) { importedScore = song.imported; score = song.imported; state.title = song.title; state.lyrics = song.imported.lyricsText || ''; $('title').value = song.title; }
-    else { Object.assign(state, { sections: null, lyrics: '' }, song.cfg, { title: song.title }); importedScore = null; score = C.buildScore(state); syncForm(); }
+    else {
+      Object.assign(state, { sections: null, lyrics: '' }, song.cfg, { title: song.title }); importedScore = null; score = C.buildScore(state);
+      if (state.sections && state.sections.length) {
+        if (!songSections().some((sec) => sec.name) && state.sections.some((x) => x.name)) state.chords = state.sections.map((x) => (x.name ? '[' + x.name + ']\n' : '') + String(x.chords).trim()).join('\n\n');
+        const list = presets(); const models = {};
+        state.sections.forEach((x) => { const p = list.find((q) => q.kind === x.patternKind && q.p === x.pattern); models[x.name || ''] = p ? p.name : MINE; });
+        state.grid = Object.assign({}, state.grid, { models });
+      }
+      syncForm();
+    }
     saveDraft();
     goto('score');
   }
@@ -1040,7 +1042,7 @@
   const asked = { guitare: 'guitar', guitar: 'guitar', ukulele: 'ukulele', 'ukulélé': 'ukulele' }[(new URLSearchParams(location.search).get('instrument') || '').toLowerCase()];
   syncForm();
   if (asked) setInstrument(asked);
-  renderRecent(); goto('create');
+  renderRecent(); goto('grid');
   // Au démarrage, on demande l'instrument, sauf si un lien l'a déjà dit ou apporte un morceau.
   if (prefs.askInstrument && !asked && !C.songLinkData(location.hash)) openStart();
   // Lien de morceau ouvert dans la version web : on propose de l'ajouter, puis on nettoie l'adresse.
