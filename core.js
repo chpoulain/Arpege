@@ -84,8 +84,15 @@
 
   const CHORD_RES = [/^(Do|Ré|Re|Mi|Fa|Sol|La|Si)(#|♯|b|♭)?(.*)$/, /^([A-G])(#|♯|b|♭)?(.*)$/];
 
+  /* « C@0007 » : l'accord de Do joué à cette position précise (une lettre ou un chiffre par corde, de la grave à l'aiguë, x = non jouée).
+     Deux positions d'un même accord peuvent ainsi se suivre dans une grille. */
   function parseChord(token) {
     if (!token) return null;
+    const at = token.indexOf('@');
+    if (at > 0) {
+      const base = parseChord(token.slice(0, at)); const pin = token.slice(at + 1).trim().toLowerCase();
+      return base && /^[0-9a-wx]{4,6}$/.test(pin) ? Object.assign(base, { pin }) : null;
+    }
     const t = token.trim();
     const bassSplit = t.split('/');
     let bass = null;
@@ -242,7 +249,8 @@
     const W = { easy: { c: 1, m: 0.12, p: 0 }, smooth: { c: 0.3, m: 1, p: 0 }, position: { c: 0.3, m: 0.15, p: 2 } }[mode];
     const target = opts.position || 0;
     const layers = chords.map((ch) => {
-      const pinned = opts.overrides && opts.overrides[ch.label];
+      // La position écrite dans la grille (C@0007) passe avant le doigté choisi pour tous les C.
+      const pinned = (ch.pin && ch.pin.length === stringCount(opts.tuning) ? ch.pin : null) || (opts.overrides && opts.overrides[ch.label]);
       const all = voicingsFor(ch, opts.tuning);
       if (pinned) {
         const v = all.find((x) => x.shape === pinned);
@@ -415,7 +423,8 @@
         if (chord.held) return; // déjà compté dans la durée de l'accord qu'il prolonge
         let span = 1; while (chords[ci + span] && chords[ci + span].held) span++;
         const v = voicings[idx++];
-        if (!seen.has(chord.label)) { seen.add(chord.label); score.voicings.push({ chord, frets: v.frets, shape: v.shape }); }
+        const id = chord.label + (chord.pin ? '@' + chord.pin : '');
+        if (!seen.has(id)) { seen.add(id); score.voicings.push({ chord, frets: v.frets, shape: v.shape }); }
         const startStep = Math.round(ci * stepsPerBar / chords.length);
         const endStep = Math.round((ci + span) * stepsPerBar / chords.length);
         for (let s = startStep; s < endStep; s++) {

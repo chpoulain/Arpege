@@ -199,3 +199,6 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .mk-open.on{font-weight:700}
 .maker-name{font-size:1.25rem;font-weight:700;color:var(--accent);margin:.2rem 0}
 #maker-sheet .sheet-body{max-height:92vh;overflow:auto}
+
+.grid-bar .slot.pinned{flex-direction:column;line-height:1.1}
+.grid-bar .slot small{font-weight:400;font-size:.66rem;color:var(--muted);font-family:ui-monospace,monospace}

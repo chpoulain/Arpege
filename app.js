@@ -193,7 +193,7 @@
   K.init();
   K.onListen = () => { if (playing) setPlaying(false); };
   K.onUse = (label, shape) => {
-    addFromPalette({ label, shape, custom: true }); // la position choisie dans la fiche est gardée
+    addFromPalette({ label, shape }); // la position choisie dans la fiche est gardée
     toast(label + ' ajouté à la grille');
   };
   K.onKeep = (label) => toast(label + ' gardé dans « Mes accords »');
@@ -419,16 +419,22 @@
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (!$('tab-score').hidden) drawScore(); }, 150); });
 
   /* ---------- choix du doigté ---------- */
-  let sheetChord = null;
+  let sheetChord = null; let sheetPin = null;
+  /* Remplace dans la grille une position écrite (C@0007) par une autre, ou par l'accord simple. */
+  function repin(label, pin, next) {
+    const text = state.chords.replace(/[^\s|]+/g, (tok) => { const c = C.parseChord(tok); return c && c.pin === pin && c.label === label ? label + (next ? '@' + next : '') : tok; });
+    state.chords = text; $('chords').value = text; checkChords(); drawGridView();
+    if (state.sections) state.sections = songSections().map(sectionFromModel);
+  }
   function openSheet(v) {
-    sheetChord = v.chord.label;
-    $('sheet-title').textContent = 'Doigtés de ' + v.chord.label;
+    sheetChord = v.chord.label; sheetPin = v.chord.pin || null;
+    $('sheet-title').textContent = 'Doigtés de ' + v.chord.label + (sheetPin ? ' (position écrite dans la grille)' : '');
     const list = $('sheet-list'); list.innerHTML = '';
     C.voicingsFor(v.chord, score.tuning).slice(0, 12).forEach((alt) => {
       const b = document.createElement('button'); b.type = 'button';
       b.className = 'dia' + (alt.shape === v.shape ? ' sel' : '');
       b.textContent = shapeText(alt.frets); b.appendChild(S.diagram(alt.frets));
-      b.addEventListener('click', () => { state.overrides[sheetChord] = alt.shape; applySheet(); });
+      b.addEventListener('click', () => { if (sheetPin) repin(sheetChord, sheetPin, alt.shape); else state.overrides[sheetChord] = alt.shape; applySheet(); });
       list.appendChild(b);
     });
     $('sheet').hidden = false;
@@ -437,7 +443,7 @@
   function applySheet() { closeSheet(); saveDraft(); score = C.buildScore(state); drawScore(); }
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
-  $('sheet-auto').addEventListener('click', () => { delete state.overrides[sheetChord]; applySheet(); });
+  $('sheet-auto').addEventListener('click', () => { if (sheetPin) repin(sheetChord, sheetPin, null); else delete state.overrides[sheetChord]; applySheet(); });
   window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isMakerOpen()) { K.closeMaker(); return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-grid').hidden) { goto('grid'); return true; } return false; };
 
   /* ---------- grille d'accords ---------- */
@@ -483,6 +489,7 @@
           if (x.held) return;
           let span = 1; while (bar[i + span] && bar[i + span].held) span++;
           const slot = document.createElement('div'); slot.className = 'slot'; slot.style.flex = span + ' 1 0'; slot.textContent = x.label;
+          if (x.pin) { slot.classList.add('pinned'); slot.title = 'Position ' + x.pin.split('').join(' '); const sm = document.createElement('small'); sm.textContent = x.pin; slot.appendChild(sm); }
           c.appendChild(slot);
         });
         row.appendChild(c);
@@ -583,9 +590,11 @@
       if (pal.bars.length === 4) { pal.base = pal.text + '\n'; pal.bars = []; } // quatre mesures par ligne
       cur = []; pal.bars.push(cur);
     }
-    cur.push(c.label, ...new Array(palSlots - 1).fill('-'));
+    // Une position qui n'est pas celle que l'application choisirait est écrite avec l'accord : C@0007.
+    const parsed = C.parseChord(c.label); const usual = parsed && C.voicingsFor(parsed, state.tuning)[0];
+    const token = c.shape && (!usual || usual.shape !== c.shape) ? c.label + '@' + c.shape : c.label;
+    cur.push(token, ...new Array(palSlots - 1).fill('-'));
     pal.text = pal.base + '| ' + pal.bars.map(barText).join(' | ') + ' |';
-    if (c.custom) state.overrides[c.label] = c.shape; // un accord créé garde sa position
     setChords(pal.text);
   }
   function drawPalette() {
