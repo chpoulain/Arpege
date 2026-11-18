@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const C = window.UkuCore; const S = window.UkuScore; const I = window.UkuImport;
+  const C = window.UkuCore; const S = window.UkuScore; const I = window.UkuImport; const K = window.UkuChords;
   const $ = (id) => document.getElementById(id);
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
@@ -57,6 +57,7 @@
     if (name === 'score') drawScore();
     if (name === 'songs') renderSongs();
     if (name === 'grid') drawGridPage();
+    if (name === 'chords') K.render(state.tuning);
   }
   document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => goto(b.dataset.goto)));
 
@@ -116,6 +117,7 @@
     else if (state.patternKind === 'strings') state.pattern = after.find((p) => p.kind === 'strings').p;
     syncForm(); saveDraft();
     if (score && !importedScore && score.bars.length) { score = C.buildScore(state); if (!$('tab-score').hidden) drawScore(); }
+    if (!$('tab-chords').hidden) K.render(state.tuning);
   }
   document.querySelectorAll('[data-instrument]').forEach((b) => b.addEventListener('click', () => setInstrument(b.dataset.instrument)));
 
@@ -153,6 +155,34 @@
     $('position-wrap').hidden = state.mode !== 'position';
     drawGrid(); saveDraft();
   }));
+
+  /* ---------- écran de démarrage : choix de l'instrument ---------- */
+  const prefs = Object.assign({ askInstrument: true }, store.get('prefs', {}));
+  function openStart() {
+    $('start-remember').checked = !prefs.askInstrument;
+    $('start').hidden = false;
+    const cur = document.querySelector('[data-start="' + inst() + '"]'); if (cur) cur.focus();
+  }
+  document.querySelectorAll('[data-start]').forEach((b) => b.addEventListener('click', () => {
+    prefs.askInstrument = !$('start-remember').checked; store.set('prefs', prefs);
+    $('opt-start').checked = prefs.askInstrument;
+    setInstrument(b.dataset.start);
+    $('start').hidden = true;
+    goto('create');
+  }));
+  $('opt-start').checked = prefs.askInstrument;
+  $('opt-start').addEventListener('change', () => { prefs.askInstrument = $('opt-start').checked; store.set('prefs', prefs); });
+  $('start-open').addEventListener('click', openStart);
+
+  /* ---------- page Accords ---------- */
+  K.init();
+  K.onListen = () => { if (playing) setPlaying(false); };
+  K.onUse = (label, shape) => {
+    state.chords = (state.chords.trim() ? state.chords.trim() + ' ' : '') + label;
+    state.overrides[label] = shape; state.sections = null;
+    $('chords').value = state.chords; checkChords(); saveDraft();
+    toast(label + ' ajouté aux accords de la page Créer');
+  };
   document.querySelectorAll('[data-kind]').forEach((b) => b.addEventListener('click', () => {
     if (state.patternKind === b.dataset.kind) return;
     state.patternKind = b.dataset.kind;
@@ -343,7 +373,7 @@
   $('sheet-close').addEventListener('click', closeSheet);
   $('sheet').addEventListener('click', (e) => { if (e.target === $('sheet')) closeSheet(); });
   $('sheet-auto').addEventListener('click', () => { delete state.overrides[sheetChord]; applySheet(); });
-  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-create').hidden) { goto('create'); return true; } return false; };
+  window.onAndroidBack = function () { if (videoJob) { videoJob.cancel(); return true; } for (const id of ['send-sheet', 'receive-sheet']) if (!$(id).hidden) { $(id).hidden = true; return true; } if (K.isOpen()) { K.close(); return true; } if (!$('start').hidden) { $('start').hidden = true; return true; } if (!$('sheet').hidden) { closeSheet(); return true; } if ($('tab-create').hidden) { goto('create'); return true; } return false; };
 
   /* ---------- grille d'accords ---------- */
   const KEYS = { major: ['C', 'D', 'Eb', 'E', 'F', 'G', 'A', 'Bb'], minor: ['A', 'B', 'C', 'D', 'E', 'F#', 'G'] };
@@ -973,6 +1003,8 @@
   syncForm();
   if (asked) setInstrument(asked);
   renderRecent(); goto('create');
+  // Au démarrage, on demande l'instrument, sauf si un lien l'a déjà dit ou apporte un morceau.
+  if (prefs.askInstrument && !asked && !C.songLinkData(location.hash)) openStart();
   // Lien de morceau ouvert dans la version web : on propose de l'ajouter, puis on nettoie l'adresse.
   if (C.songLinkData(location.hash)) {
     const link = location.href;

@@ -14,6 +14,17 @@
 <meta name="apple-mobile-web-app-title" content="Arpège">
 </head>
 <body>
+<div id="start" class="start" hidden role="dialog" aria-modal="true" aria-labelledby="start-title">
+  <div class="start-body">
+    <h1 id="start-title">Arpège</h1>
+    <p class="start-lead">Avec quel instrument joues-tu aujourd'hui ?</p>
+    <div class="start-choices">
+      <button type="button" class="start-card" data-start="guitar"><img src="img/guitare.jpg" alt="" width="900" height="600"><span>Guitare</span></button>
+      <button type="button" class="start-card" data-start="ukulele"><img src="img/ukulele.jpg" alt="" width="900" height="600"><span>Ukulélé</span></button>
+    </div>
+    <label class="check"><input type="checkbox" id="start-remember"> Garder ce choix et ne plus demander au démarrage</label>
+  </div>
+</div>
 <header class="top">
   <h1>Arpège</h1>
   <input id="title" class="song-title" placeholder="Titre du morceau" aria-label="Titre du morceau" maxlength="80">
@@ -121,6 +132,13 @@
     <button type="button" id="grid-from-create" class="btn">Reprendre les accords de la page Créer</button>
   </section>
 
+  <section id="tab-chords" class="screen" hidden>
+    <h2 id="chords-title">Accords</h2>
+    <p id="chords-tuning" class="hint"></p>
+    <div id="chords-roots" class="chips" role="group" aria-label="Choisir une note"></div>
+    <div id="chords-list" class="chord-list"></div>
+  </section>
+
   <section id="tab-import" class="screen" hidden>
     <h2>Importer depuis Internet</h2>
     <p class="hint">Colle le lien d'un fichier texte, d'une image, d'une partition MusicXML ou d'une page qui en contient : l'application en cherche aussi les accords. Les liens de partage Google Drive, Dropbox et GitHub sont pris en charge s'ils sont publics.</p>
@@ -217,6 +235,12 @@
         <button type="button" id="zip-import" class="btn">Importer un .zip</button>
       </div>
     </div>
+    <div class="about">
+      <h2>Démarrage</h2>
+      <label class="check"><input type="checkbox" id="opt-start"> Demander l'instrument à chaque démarrage</label>
+      <button type="button" id="start-open" class="btn gap">Changer d'instrument</button>
+      <p class="hint">Photos de l'écran d'accueil : Daniel Barnes (guitare) et Mariana D'Lara (ukulélé), sur Unsplash.</p>
+    </div>
     <div id="about" class="about" hidden>
       <h2>Application</h2>
       <p class="hint">Version <span id="app-version"></span>. Les mises à jour s'installent sans réinstaller, et tes morceaux ne sont pas touchés.</p>
@@ -229,6 +253,7 @@
 <nav class="bottom" aria-label="Navigation">
   <button type="button" data-goto="create">Créer</button>
   <button type="button" data-goto="grid">Grille</button>
+  <button type="button" data-goto="chords">Accords</button>
   <button type="button" data-goto="import">Importer</button>
   <button type="button" data-goto="score">Partition</button>
   <button type="button" data-goto="songs">Morceaux</button>
@@ -239,6 +264,26 @@
     <div class="row-between"><h2 id="sheet-title"></h2><button type="button" id="sheet-close" class="btn small">Fermer</button></div>
     <div id="sheet-list" class="diagrams wrap"></div>
     <button type="button" id="sheet-auto" class="btn">Laisser l'application choisir</button>
+  </div>
+</div>
+<div id="chord-sheet" class="sheet" hidden>
+  <div class="sheet-body" role="dialog" aria-modal="true" aria-labelledby="chord-name">
+    <div class="row-between"><h2 id="chord-name"></h2><button type="button" id="chord-close" class="btn small">Fermer</button></div>
+    <div class="chord-detail">
+      <div id="chord-figure" class="chord-figure"></div>
+      <div class="chord-side">
+        <div id="chord-neck" class="chord-neck"></div>
+        <img id="chord-photo" class="chord-photo" alt="" hidden>
+        <div id="chord-facts" class="chord-facts"></div>
+      </div>
+    </div>
+    <div class="send-actions">
+      <button type="button" id="chord-play" class="btn">▶ Écouter l'accord</button>
+      <button type="button" id="chord-arp" class="btn">▶ Corde après corde</button>
+      <button type="button" id="chord-use" class="btn">Ajouter à mes accords</button>
+    </div>
+    <span class="lbl gap">Autres positions</span>
+    <div id="chord-alts" class="diagrams wrap"></div>
   </div>
 </div>
 <div id="send-sheet" class="sheet" hidden>
@@ -278,6 +323,7 @@
 <script src="score.js"></script>
 <script src="video.js"></script>
 <script src="import.js"></script>
+<script src="chords.js"></script>
 <script src="app.js"></script>
 <script src="update.js"></script>
 <script src="web.js"></script>
