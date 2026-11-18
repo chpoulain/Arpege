@@ -160,7 +160,7 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .chord-detail{display:flex;gap:14px;align-items:flex-start;margin:8px 0 12px;flex-wrap:wrap}
 .chord-figure{flex:none}
 .chord-side{flex:1;min-width:240px}
-.chord-neck svg{display:block;width:100%;max-width:420px;height:auto}
+.chord-neck svg{display:block;height:150px;width:auto;max-width:100%}
 .chord-photo{display:block;width:100%;max-width:420px;border-radius:10px;margin-top:8px}
 .chord-facts p{margin:.4rem 0;font-size:.9rem}
 #chord-sheet .sheet-body{max-height:92vh;overflow:auto}
@@ -169,11 +169,11 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .chips.show button{min-height:38px;padding:5px 12px;font-size:.86rem}
 .chips.show button:disabled{opacity:.4}
 .dia.neck{min-width:0;padding:6px 8px}
-.dia.neck svg{width:210px;max-width:60vw;height:auto}
-.page-dias .dia.neck svg{width:42mm;max-width:none}
+.dia.neck svg{height:84px;width:auto;max-width:70vw}
+.page-dias .dia.neck svg{height:17mm;width:auto;max-width:none}
 .chord-hit{cursor:help}
-.chord-pop{position:fixed;z-index:15;width:min(300px,calc(100vw - 16px));background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px 6px;box-shadow:0 6px 24px rgba(35,33,28,.22);pointer-events:none}
+.chord-pop{position:fixed;z-index:15;width:max-content;max-width:calc(100vw - 16px);background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 10px 6px;box-shadow:0 6px 24px rgba(35,33,28,.22);pointer-events:none}
 .chord-pop b{display:block;color:var(--accent);margin-bottom:2px}
-.chord-pop svg{display:block;width:100%;height:auto}
+.chord-pop svg{display:block;height:128px;width:auto;max-width:100%}
 .chord-pop small{display:block;color:var(--muted);font-size:.78rem;margin-top:2px}
 @media (max-width:430px){.bottom button{font-size:.7rem;letter-spacing:-.01em}}

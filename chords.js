@@ -75,13 +75,16 @@
     return svg;
   }
 
-  /* Le manche vu par le joueur, comme sur une tablature : sillet à gauche, corde aiguë en haut. */
+  /* Le manche vu par le joueur, comme sur une tablature : corde aiguë en haut.
+     Seules les cases appuyées sont dessinées, de la plus basse à la plus haute ; le sillet n'apparaît que si la case 1 en fait partie. */
   function neckView(frets, tuningKey) {
     const tuning = C.TUNINGS[tuningKey] || C.TUNINGS.standard;
-    const n = frets.length; const cols = 5; const colW = 62; const gap = n > 4 ? 19 : 25;
+    const pressed = frets.filter((f) => f > 0);
+    const base = pressed.length ? Math.min(...pressed) : 1;
+    const cols = pressed.length ? Math.max(...pressed) - base + 1 : 1;
+    const n = frets.length; const colW = 62; const gap = n > 4 ? 19 : 25;
     const left = 46; const top = 18; const boardH = gap * (n - 1) + 22; const w = left + colW * cols + 16; const h = top + boardH + 26;
-    const svg = el('svg', { viewBox: '0 0 ' + w + ' ' + h, role: 'img', 'aria-label': 'Position des doigts sur le manche' });
-    const base = window5(frets);
+    const svg = el('svg', { viewBox: '0 0 ' + w + ' ' + h, width: w, height: h, role: 'img', 'aria-label': 'Position des doigts sur le manche' });
     const fg = fingering(frets);
     const sy = (i) => top + 11 + (n - 1 - i) * gap; // corde 0 (grave) en bas
     const fx = (f) => left + (f - base + 0.5) * colW;
