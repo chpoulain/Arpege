@@ -1002,6 +1002,7 @@
   const status = (t, cls) => setMsg($('import-status'), t, cls);
   function progress(v) { const p = $('import-progress'); p.hidden = v === null; if (v !== null) p.firstElementChild.style.width = Math.round(v * 100) + '%'; }
   function resetImport() {
+    importTitle = '';
     $('found-links').innerHTML = ''; $('import-result').hidden = true; $('import-preview').hidden = true; progress(null); status('');
   }
   function renderRecent() {
@@ -1023,7 +1024,7 @@
     if (window.UkuGp.kindOf(bytes)) { await openGuitarPro(bytes); status(''); return; }
     const shared = arpegeFile(bytes);
     if (shared) { status(''); showReceived(shared); return; }
-    if (kind === 'pdf') { status('Les PDF ne sont pas lus pour l\'instant. Utilise un fichier texte ou une image (capture d\'écran de la page).', 'warn'); return; }
+    if (kind === 'pdf') { await openPdf(bytes); return; }
     if (kind === 'html') {
       const { links, text } = I.parseHtml(bytes, baseUrl);
       if (links.length) {
@@ -1060,6 +1061,32 @@
     showText(I.decodeText(bytes), true);
   }
 
+  /* PDF : une feuille de chant par page (recueil) ou un seul morceau. */
+  let importTitle = '';
+  async function openPdf(bytes) {
+    status('Lecture du PDF…'); progress(0);
+    let pages;
+    try { pages = await I.readPdf(bytes, progress); } finally { progress(null); }
+    const songs = pages.map((pg) => Object.assign({ song: C.parseSongSheet(pg.text, { strings: N(), tuning: state.tuning }) }, pg)).filter((x) => x.song.pairs >= 2 && x.song.bars >= 4);
+    const pick = (x) => { importTitle = x.title || x.song.title; showText(x.text, false); };
+    if (!songs.length) {
+      const all = pages.map((pg) => pg.text).join('\n\n').trim();
+      importTitle = '';
+      if (all) { showText(all, true); status('Aucune chanson avec accords au-dessus des paroles reconnue dans ce PDF. Voici son texte, à corriger au besoin.', 'warn'); }
+      else status('Ce PDF ne contient pas de texte : c\'est une image numérisée. Fais-en une capture d\'écran et importe l\'image.', 'warn');
+      return;
+    }
+    if (songs.length === 1) { status(''); pick(songs[0]); return; }
+    status(songs.length + ' morceaux trouvés dans ce PDF. Choisis-en un :');
+    const ul = $('found-links'); ul.innerHTML = '';
+    songs.forEach((x) => {
+      const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button';
+      b.textContent = (x.title || x.song.title || 'Page ' + x.page) + ' · ' + x.song.bars + ' mesures · page ' + x.page;
+      b.addEventListener('click', () => pick(x));
+      li.appendChild(b); ul.appendChild(li);
+    });
+  }
+
   let textFromImage = false;
   function showText(text, clearStatus, fromImage) {
     textFromImage = !!fromImage;
@@ -1083,6 +1110,16 @@
     const el = $('import-detect'); const btn = $('transform');
     $('chord-panel').hidden = true;
     btn.hidden = lastDetect.type !== 'tab';
+    const isSong = lastDetect.type === 'song';
+    $('use-song').hidden = !isSong; $('song-note').hidden = !isSong;
+    if (isSong) {
+      const sg = lastDetect.song;
+      setMsg(el, 'Chanson avec paroles : ' + sg.bars + ' mesures' + (sg.sections.length > 1 ? ' en ' + sg.sections.length + ' parties' : '') + (sg.tempo ? ', ' + sg.tempo + ' à la noire' : '') + '.');
+      $('song-note').textContent = 'Chaque accord est compté pour une mesure : à vérifier à l\'écoute, puis à ajuster dans l\'onglet Grille.'
+        + (sg.pattern ? ' Rythme repris de la feuille : ' + sg.pattern + '.' : '')
+        + (sg.ignored.length ? ' Laissé de côté : ' + sg.ignored.slice(0, 12).join(' ') + '.' : '');
+      return;
+    }
     if (lastDetect.type === 'tab') setMsg(el, 'Tablature ' + (C.stringCount(lastDetect.score.tuning) === 6 ? 'guitare' : 'ukulélé') + ' détectée : ' + lastDetect.count + ' mesure' + (lastDetect.count > 1 ? 's' : '') + '.');
     else if (lastDetect.type === 'chords') setMsg(el, 'Grille d\'accords trouvée : ' + lastDetect.count + ' accord' + (lastDetect.count > 1 ? 's' : '') + '.');
     else {
@@ -1106,6 +1143,16 @@
       state.lyrics = ''; saveDraft();
       goto('score');
     }
+  });
+  $('use-song').addEventListener('click', () => {
+    detect();
+    if (lastDetect.type !== 'song') return;
+    const sg = lastDetect.song;
+    state.title = (importTitle || sg.title || state.title || '').slice(0, 80); $('title').value = state.title;
+    state.chords = sg.chordsText; state.lyrics = sg.lyricsText; state.overrides = {}; state.grid.models = {}; state.transpose = 0;
+    if (sg.tempo) state.tempo = sg.tempo;
+    if (sg.pattern) { state.patternKind = 'strum'; state.pattern = sg.pattern; state.subdivision = '8'; }
+    syncForm(); generate();
   });
   $('use-chords').addEventListener('click', () => {
     const chords = $('found-chords').value.trim();

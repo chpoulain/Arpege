@@ -868,6 +868,117 @@
     return { chordsText: out.join('\n'), count: parsed.bars.flat().length, title };
   }
 
+  /* ---------- Import : feuille de chant (accords écrits au-dessus des paroles) ----------
+     Chaque accord vaut une mesure et les paroles sont découpées sous lui. Notations reconnues :
+     « / » rejoue l'accord une mesure de plus, « D* » (italique) dure une demi-mesure, « Dm7[5557] » ou « [0232] » impose des cases,
+     « [Refrain] » ouvre une partie. Flèches, « | », notes de mélodie (e0, c2) et commentaires sont laissés de côté. */
+  const ARROWS = /[↓↑]/;
+  function sheetToken(raw, strings) {
+    let t = raw.replace(/[↓↑…]+/g, '').replace(/[.,;:!?]+$/, '');
+    if (!t) return null;
+    if (t === '/' || t === '%') return { repeat: true };
+    const frets = /\[([0-9xX]{4,6})\]/.exec(t);
+    let pin = null;
+    if (frets) { if (frets[1].length === strings) pin = frets[1].toLowerCase(); t = t.replace(frets[0], ''); }
+    const again = /\/$/.test(t); if (again) t = t.slice(0, -1);
+    t = t.replace(/[|_]+/g, '');
+    const half = /\*/.test(t); t = t.replace(/\*/g, '');
+    if (!t) return pin ? { pin, again, half } : null;
+    const c = parseChord(t);
+    if (c) return { label: t, pin, again, half };
+    return pin ? { pin, again, half } : { word: true }; // nom inconnu mais cases données : les cases suffisent
+  }
+  /* Deux colonnes sur la page : si beaucoup de lignes reprennent à la même colonne après un grand blanc, la colonne de droite est lue à la suite. */
+  function splitColumns(lines) {
+    const starts = new Map();
+    lines.forEach((l) => { const re = / {4,}(?=\S)/g; let m; const seen = new Set(); while ((m = re.exec(l))) { const c = m.index + m[0].length; if (c >= 30 && !seen.has(c)) { seen.add(c); starts.set(c, (starts.get(c) || 0) + 1); } } });
+    let best = 0; let col = 0;
+    starts.forEach((n, c) => { if (n > best) { best = n; col = c; } });
+    if (best < 6) return lines;
+    const left = []; const right = [];
+    lines.forEach((l) => {
+      const cut = l.length > col && /^ {2,}$/.test(l.slice(Math.max(0, col - 2), col)) || (l.length > col && !l.slice(0, col).trim());
+      if (cut) { if (l.slice(0, col).trim()) left.push(l.slice(0, col).replace(/\s+$/, '')); right.push(l.slice(col)); } else left.push(l);
+    });
+    return left.concat([''], right);
+  }
+  function parseSongSheet(text, opts) {
+    const o = opts || {}; const strings = o.strings || 4;
+    const tuningKey = o.tuning && stringCount(o.tuning) === strings ? o.tuning : (strings === 6 ? 'guitar' : 'standard');
+    const raw = String(text || '').replace(/[\u200b\u00ad]/g, '').replace(/\t/g, '    ').split(/\r?\n/).map((l) => l.replace(/\s+$/, ''));
+    const lines = splitColumns(raw);
+    const out = { title: o.title || '', tempo: null, pattern: null, sections: [], bars: 0, pairs: 0, ignored: [] };
+    let cur = null; let pending = null; // pending : mesures de la dernière ligne d'accords, en attente de leurs paroles
+    const section = (name) => { cur = { name, lines: [] }; out.sections.push(cur); };
+    const tokensOf = (line) => { const list = []; const re = /\S+/g; let m; while ((m = re.exec(line))) list.push({ col: m.index, raw: m[0] }); return list; };
+    const readChords = (line, offset) => {
+      const toks = tokensOf(line).map((t) => Object.assign(t, { col: t.col + (offset || 0), k: sheetToken(t.raw, strings) }));
+      const chords = toks.filter((t) => t.k && (t.k.label || t.k.pin)); const words = toks.filter((t) => t.k && t.k.word);
+      if (!chords.length || words.length > chords.length) return null;
+      words.forEach((w) => { if (!/^[(\[]|^[a-g]\d|^ral|^x\d/i.test(w.raw) && !out.ignored.includes(w.raw)) out.ignored.push(w.raw); });
+      const bars = []; let halfOpen = null;
+      toks.forEach((t) => {
+        const k = t.k; if (!k) return;
+        if (k.repeat) { const last = bars[bars.length - 1]; if (last) bars.push({ col: t.col, tokens: [last.tokens[last.tokens.length - 1]] }); halfOpen = null; return; }
+        if (!k.label && !k.pin) return;
+        let label = k.label;
+        if (!label) { // cases seules : on retrouve le nom de l'accord
+          const named = nameChord(k.pin.split('').map((c) => (c === 'x' ? -1 : +c)), tuningKey);
+          if (!named.label) { if (!out.ignored.includes('[' + k.pin + ']')) out.ignored.push('[' + k.pin + ']'); return; }
+          label = named.label.split('/')[0];
+        }
+        const token = label + (k.pin ? '@' + k.pin : '');
+        if (k.half && halfOpen) { halfOpen.tokens.push(token); halfOpen = null; } else {
+          const bar = { col: t.col, tokens: [token] }; bars.push(bar); halfOpen = k.half ? bar : null;
+        }
+        if (k.again) { bars.push({ col: t.col + t.raw.length, tokens: [token] }); halfOpen = null; }
+      });
+      return bars.length ? bars : null;
+    };
+    const flush = () => { if (pending) { cur.lines.push({ bars: pending.map((b) => b.tokens), lyrics: pending.map(() => '') }); pending = null; } };
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const bpm = /(\d{2,3})\s*BPM/i.exec(line); if (bpm && !out.tempo) { out.tempo = Math.min(180, Math.max(40, +bpm[1])); continue; }
+      const head = /^\s*\[([^\]]{2,40})\]/.exec(line);
+      let body = line; let offset = 0;
+      if (head && !/^[0-9xX]{4,6}$/.test(head[1]) && !parseChord(head[1].trim())) {
+        flush(); section(head[1].trim());
+        // Premier rythme indiqué après le titre de la partie : ↓ bas, ↑ haut, un chiffre = la corde pincée.
+        const rhythm = /[↓↑][↓↑\d ]{2,}/.exec(line.slice(head[0].length));
+        if (rhythm && !out.pattern) { const steps = rhythm[0].replace(/\s/g, '').split('').map((c) => (c === '↓' ? 'b' : c === '↑' ? 'h' : c)); if ([4, 6, 8].includes(steps.length) && steps.every((x) => x === 'b' || x === 'h' || +x <= strings)) out.pattern = steps.join(' '); }
+        offset = head[0].length; body = line.slice(offset);
+        if (!body.trim()) continue;
+      }
+      const stripped = body.replace(/[↓↑…\s()]/g, '');
+      if (!stripped || (ARROWS.test(body) && !/[A-G]/.test(stripped))) continue; // ligne de flèches seule
+      const chordLine = readChords(body, offset);
+      if (chordLine) { if (!cur) section(''); flush(); pending = chordLine; continue; }
+      if (pending) { // paroles de la ligne d'accords précédente, découpées sous chaque accord
+        const cols = pending.map((b) => b.col);
+        // Un accord qui tombe au milieu d'un mot le coupe : un tiret le signale.
+        const cutWord = (c) => c !== undefined && c > 0 && c < line.length && /\S/.test(line[c - 1]) && /\S/.test(line[c]) && line[c - 1] !== '-';
+        const lyr = pending.map((b, i) => line.slice(i === 0 ? 0 : cols[i], i + 1 < cols.length ? cols[i + 1] : undefined).replace(/\s+/g, ' ').trim() + (cutWord(cols[i + 1]) ? '-' : ''));
+        cur.lines.push({ bars: pending.map((b) => b.tokens), lyrics: lyr }); pending = null; out.pairs++;
+      } else if (!out.sections.length && !out.title) out.title = line.trim().replace(/\s{2,}.*$/, '').replace(/\s*\(?\b(19|20)\d\d\)?.*$/, '').replace(/\s+wiki$/i, '').slice(0, 80);
+    }
+    if (cur) flush();
+    out.sections = out.sections.filter((sec) => sec.lines.length);
+    // Sortie au format de l'application : grille et paroles, une ligne de la feuille par ligne.
+    const barText = (toks) => (toks.length > 1 ? toks.join(' ') : toks[0]);
+    const chordLines = []; const lyricLines = [];
+    out.sections.forEach((sec, i) => {
+      if (i) { chordLines.push(''); lyricLines.push(''); }
+      if (sec.name) { chordLines.push('[' + sec.name + ']'); lyricLines.push('[' + sec.name + ']'); }
+      sec.lines.forEach((l) => {
+        chordLines.push('| ' + l.bars.map(barText).join(' | ') + ' |');
+        lyricLines.push(l.lyrics.map((w) => w.replace(/\|/g, ' ') || '_').join(' | '));
+        out.bars += l.bars.length;
+      });
+    });
+    out.chordsText = chordLines.join('\n'); out.lyricsText = lyricLines.join('\n');
+    return out;
+  }
+
   function detectContent(text, meter, prefer) {
     if (isMusicXml(text)) {
       const found = findChords(text);
@@ -876,6 +987,9 @@
     const tab = parseTabText(text, meter, '', prefer);
     if (tab && tab.unsupported) return { type: 'unsupported-tab', strings: tab.unsupported };
     if (tab) return { type: 'tab', score: tab, count: tab.bars.length };
+    // Accords au-dessus des paroles : la chanson entière, avec ses parties et ses paroles par mesure.
+    const song = parseSongSheet(text, { strings: prefer || 4 });
+    if (song.pairs >= 2 && song.bars >= 4) return { type: 'song', song, count: song.bars };
     const sheet = extractChordSheet(text);
     if (sheet.count) return { type: 'chords', ...sheet };
     return { type: 'unknown' };
@@ -1223,7 +1337,7 @@
     return u;
   }
 
-  const api = { nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { parseSongSheet, nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

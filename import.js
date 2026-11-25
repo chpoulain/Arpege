@@ -454,5 +454,75 @@
     }
   }
 
-  global.UkuImport = { fetchRemote, sniff, decodeText, parseHtml, ocr, chordsInBand, MAX_BYTES };
+  /* ---------- Lecture d'un PDF ----------
+     Le texte est remis en colonnes comme sur la page : dans une feuille de chant, c'est la position d'un accord
+     au-dessus des paroles qui dit sur quelle syllabe il tombe. Un accord en italique est suivi de « * ». */
+  let pdfLoaded = null;
+  function loadPdf() {
+    if (!pdfLoaded) {
+      pdfLoaded = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'vendor/pdfjs/pdf.min.js';
+        s.onload = () => { global.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs/pdf.worker.min.js'; resolve(); };
+        s.onerror = () => { pdfLoaded = null; reject(new Error('module de lecture des PDF indisponible (connexion nécessaire la première fois)')); };
+        document.head.appendChild(s);
+      });
+    }
+    return pdfLoaded;
+  }
+  function pageLayout(items) {
+    const mono = items.filter((i) => i.mono);
+    const lines = [];
+    items.slice().sort((a, b) => b.y - a.y || a.x - b.x).forEach((it) => {
+      const last = lines[lines.length - 1];
+      if (last && Math.abs(last.y - it.y) <= Math.max(2, Math.min(last.size, it.size) * 0.45)) last.items.push(it); else lines.push({ y: it.y, size: it.size, items: [it] });
+    });
+    // Grille de colonnes : largeur d'un caractère de la police à chasse fixe la plus utilisée.
+    const sizes = new Map(); mono.forEach((i) => { const k = Math.round(i.size * 2) / 2; sizes.set(k, (sizes.get(k) || 0) + i.str.length); });
+    let size = 0; let most = 0; sizes.forEach((n, k) => { if (n > most) { most = n; size = k; } });
+    const cw = size * 0.6; const x0 = mono.length ? Math.min(...mono.map((i) => i.x)) : 0;
+    // Titre : le texte le plus gros du haut de la page.
+    let title = '';
+    const top = lines.slice(0, 5).flatMap((l) => l.items).filter((i) => !i.mono);
+    const big = top.length ? Math.max(...top.map((i) => i.size)) : 0;
+    if (big >= 16) title = top.filter((i) => i.size > big - 1).sort((a, b) => b.y - a.y || a.x - b.x).map((i) => i.str.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    const text = lines.map((line) => {
+      const its = line.items.sort((a, b) => a.x - b.x);
+      if (!cw || !its.some((i) => i.mono)) return its.map((i) => i.str.trim()).join(' ');
+      let out = '';
+      its.forEach((i) => {
+        const col = Math.max(0, Math.round((i.x - x0) / cw));
+        // Accord en italique : marqué d'une étoile, prise sur l'espace qui suit pour ne pas décaler la ligne.
+        const str = i.italic && i.bold ? i.str.replace(/(\S+)( ?)/g, '$1*') : i.str;
+        if (out.length < col) out += ' '.repeat(col - out.length); else if (out && !/\s$/.test(out)) out += ' ';
+        out += str;
+      });
+      return out.replace(/\s+$/, '');
+    }).join('\n');
+    return { title, text };
+  }
+  /* Renvoie une entrée par page : { page, title, text }. */
+  async function readPdf(bytes, onProgress) {
+    await loadPdf();
+    const doc = await global.pdfjsLib.getDocument({ data: bytes.slice(), isEvalSupported: false, disableFontFace: true }).promise;
+    const pages = [];
+    const count = Math.min(doc.numPages, 80);
+    for (let p = 1; p <= count; p++) {
+      const page = await doc.getPage(p);
+      const tc = await page.getTextContent();
+      try { await page.getOperatorList(); } catch (e) { /* noms de police indisponibles : pas d'italique, le reste est lu */ }
+      const fontName = (id) => { try { return (page.commonObjs.has(id) && page.commonObjs.get(id).name) || ''; } catch (e) { return ''; } };
+      const items = tc.items.filter((i) => i.str && i.str.trim()).map((i) => {
+        const name = fontName(i.fontName); const family = (tc.styles[i.fontName] || {}).fontFamily || '';
+        return { str: i.str.replace(/[\u200b\u00ad]/g, ''), x: i.transform[4], y: i.transform[5], size: Math.hypot(i.transform[0], i.transform[1]),
+          mono: /mono|courier/i.test(name) || family === 'monospace', italic: /italic|oblique/i.test(name), bold: /bold/i.test(name) };
+      });
+      pages.push(Object.assign({ page: p }, pageLayout(items)));
+      if (onProgress) onProgress(p / count);
+    }
+    doc.destroy();
+    return pages;
+  }
+
+  global.UkuImport = { fetchRemote, sniff, decodeText, parseHtml, ocr, readPdf, chordsInBand, MAX_BYTES };
 })(window);

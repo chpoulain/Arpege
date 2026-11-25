@@ -161,8 +161,8 @@
     </div>
     <ul id="recent" class="link-list"></ul>
     <div class="or"><span>ou depuis cet appareil</span></div>
-    <label class="btn file-btn">Choisir un fichier ou une image
-      <input id="file" type="file" accept=".arpege,.json,.txt,.text,.cho,.crd,.tab,.pro,.musicxml,.xml,.gpx,.gp,text/*,image/*" hidden>
+    <label class="btn file-btn">Choisir un fichier, un PDF ou une image
+      <input id="file" type="file" accept=".arpege,.json,.txt,.text,.cho,.crd,.tab,.pro,.musicxml,.xml,.gpx,.gp,.pdf,application/pdf,text/*,image/*" hidden>
     </label>
 
     <p id="import-status" class="msg" hidden role="status"></p>
@@ -176,6 +176,8 @@
         <textarea id="import-text" class="mono" rows="10" spellcheck="false" autocapitalize="off"></textarea>
       </label>
       <p id="import-detect" class="msg"></p>
+      <button type="button" id="use-song" class="cta" hidden>Créer le morceau : accords et paroles</button>
+      <p id="song-note" class="hint" hidden></p>
       <div id="chord-panel" class="chord-panel" hidden>
         <label class="field">
           <span class="lbl">Accords du morceau <small>(modifiables)</small></span>
