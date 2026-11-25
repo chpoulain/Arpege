@@ -395,18 +395,24 @@
     const tuningKey = Object.prototype.hasOwnProperty.call(TUNINGS, cfg.tuning) ? cfg.tuning : 'standard';
     const tuning = TUNINGS[tuningKey];
     const N = tuning.midi.length;
-    const sections = (cfg.sections && cfg.sections.length ? cfg.sections : [cfg]).map((s) => ({
-      name: s.name || '', kind: s.patternKind, subdivision: s.subdivision, parsed: parseChordText(s.chords), pat: parsePattern(s.pattern, s.patternKind, N),
-    }));
+    const tabProblems = [];
+    const sections = (cfg.sections && cfg.sections.length ? cfg.sections : [cfg]).map((s) => {
+      // Partie écrite en tablature (intro, solo) : ses notes sont reprises telles quelles, sans accords ni motif.
+      const tab = sectionTab(s.chords, cfg.meter, N);
+      if (tab && tab.problem) tabProblems.push((s.name ? '« ' + s.name + ' » : ' : '') + tab.problem);
+      if (tab) return { name: s.name || '', tabBars: tab.bars || [], parsed: { bars: [], unknown: [] }, pat: { steps: [0], errors: [] } };
+      return { name: s.name || '', kind: s.patternKind, subdivision: s.subdivision, parsed: parseChordText(s.chords), pat: parsePattern(s.pattern, s.patternKind, N) };
+    });
     const unknown = sections.flatMap((s) => s.parsed.unknown);
     const patErrors = sections.flatMap((s) => s.pat.errors);
-    const problems = [];
+    const problems = tabProblems;
+    const some = sections.some((s) => s.parsed.bars.length || (s.tabBars && s.tabBars.length));
     if (unknown.length) problems.push('Accords non reconnus : ' + [...new Set(unknown)].join(', '));
     if (patErrors.length) problems.push('Motif : symboles ignorés (' + [...new Set(patErrors)].join(', ') + ')');
-    if (!sections.some((s) => s.parsed.bars.length)) problems.push('Saisis au moins un accord.');
+    if (!some) problems.push('Saisis au moins un accord.');
     if (sections.some((s) => !s.pat.steps.length)) problems.push('Le motif est vide.');
     const score = { title: cfg.title || '', meter: cfg.meter in METERS ? cfg.meter : '4/4', tuning: tuningKey, bars: [], voicings: [], problems, source: 'generated' };
-    if (!sections.some((s) => s.parsed.bars.length) || sections.some((s) => !s.pat.steps.length)) return score;
+    if (!some || sections.some((s) => !s.pat.steps.length)) return score;
     sections.forEach((s) => { s.bars = s.parsed.bars.map((b) => b.map((c) => (c.held ? { held: true } : transposeChord(c, cfg.transpose || 0)))); });
     const flat = sections.flatMap((s) => s.bars.flat().filter((c) => !c.held));
     let voicings;
@@ -414,7 +420,9 @@
     catch (e) { problems.push(e.message); return score; }
     let idx = 0;
     const seen = new Set();
-    for (const sec of sections) sec.bars.forEach((chords, barIndex) => {
+    for (const sec of sections) {
+     if (sec.tabBars) { sec.tabBars.forEach((b, i) => score.bars.push(i === 0 && sec.name ? { events: b.events, section: sec.name, tab: true } : { events: b.events, tab: true })); continue; }
+     sec.bars.forEach((chords, barIndex) => {
       const pat = sec.pat;
       const stepUnits = sec.subdivision === '16' ? 1 : 2;
       const stepsPerBar = Math.floor(meter.units / stepUnits);
@@ -446,7 +454,8 @@
         }
       });
       score.bars.push(barIndex === 0 && sec.name ? { events, section: sec.name } : { events });
-    });
+     });
+    }
     score.preferFlats = flat.some((c) => c.flat);
     return score;
   }
@@ -476,6 +485,11 @@
     return out;
   }
 
+  /* Paroles mesure par mesure, pour cette partition : les mesures d'une partie en tablature (intro, solo) n'en prennent pas. */
+  function lyricsFor(score, text) {
+    const list = parseLyrics(text); let i = 0;
+    return score.bars.map((b) => (b.tab ? '' : list[i++] || ''));
+  }
   /* Mise en page imprimée : 4 mesures par ligne en 4/4, jusqu'à 6 pour les mesures courtes. */
   function printBarsPerLine(meter) {
     return Math.min(6, Math.max(4, Math.floor(72 / METERS[meter in METERS ? meter : '4/4'].units)));
@@ -656,6 +670,16 @@
       lines[name] = rows.join('\n');
     });
     return names.map((name) => '[' + name + ']\n' + lines[name]).join('\n\n') + '\n';
+  }
+  /* Une partie écrite en tablature plutôt qu'en accords : renvoie ses mesures, ou null si ce sont des accords.
+     Une ligne par corde, l'aiguë en haut ; l'écart entre les chiffres donne les durées (16 caractères par mesure = des doubles-croches). */
+  function sectionTab(text, meterKey, strings) {
+    if (!findTabBlocks(text).length) return null;
+    const t = parseTabText(text, meterKey, '', strings);
+    if (!t) return null;
+    if (t.unsupported) return { problem: 'tablature à ' + t.unsupported + ' lignes, non lue (il en faut ' + strings + ')' };
+    if (stringCount(t.tuning) !== strings) return { problem: 'tablature à ' + stringCount(t.tuning) + ' lignes, alors que l\'instrument a ' + strings + ' cordes' };
+    return { bars: t.bars };
   }
   /* Découpe une grille écrite en parties : [Couplet] ouvre une partie, [C] reste un accord. */
   function parseGridText(text) {
@@ -1354,7 +1378,7 @@
     return u;
   }
 
-  const api = { parseSongSheet, nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { lyricsFor, sectionTab, parseSongSheet, nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -216,8 +216,10 @@
   });
   /* Les parties de la grille : [Couplet] en ouvre une. Sans titre, tout le morceau est une seule partie. */
   const songSections = () => C.parseGridText(state.chords);
+  /* Mesures d'une partie écrite en tablature (intro, solo), ou null si ce sont des accords. */
+  const tabOf = (sec) => C.sectionTab(sec.chords, state.meter, N());
   function checkChords() {
-    const parts = songSections().map((sec) => C.parseChordText(sec.chords));
+    const parts = songSections().map((sec) => { const tab = tabOf(sec); return tab ? { unknown: [], bars: tab.bars || [] } : C.parseChordText(sec.chords); });
     const unknown = parts.flatMap((r) => r.unknown); const bars = parts.reduce((n, r) => n + r.bars.length, 0);
     if (unknown.length) setMsg($('chord-msg'), 'Non reconnu : ' + [...new Set(unknown)].join(', '), 'warn');
     else setMsg($('chord-msg'), bars ? bars + ' mesure' + (bars > 1 ? 's' : '') + (parts.length > 1 ? ' en ' + parts.length + ' parties' : '') : '');
@@ -370,7 +372,7 @@
   function buildSongSheet(host) {
     host.innerHTML = '';
     const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
-    const lyrics = C.parseLyrics(state.lyrics, true); let bar = 0;
+    const lyrics = C.parseLyrics(state.lyrics, true); let bar = 0; let scoreBar = 0;
     const t = C.TUNINGS[state.tuning];
     host.appendChild(el('p', 'ss-meta', (t.instrument === 'guitar' ? 'Guitare' : 'Ukulélé') + (t.capo ? ', capo ' + t.capo : state.tuning !== C.INSTRUMENTS[t.instrument].tuning ? ', ' + t.label : '') + ' · ' + state.meter + ' · ' + state.tempo + ' à la noire'));
     const whole = { pattern: state.pattern, patternKind: state.patternKind };
@@ -378,6 +380,17 @@
     const named = sections.length > 1 || sections.some((sec) => sec.name);
     let lastPattern = null;
     sections.forEach((sec) => {
+      const tab = tabOf(sec);
+      if (tab) { // intro ou solo : la tablature de la partie, dessinée dans la feuille
+        if (sec.name) { const h = el('div', 'ss-part'); h.appendChild(el('span', '', '[' + sec.name + ']')); host.appendChild(h); }
+        const n = (tab.bars || []).length;
+        if (n && score) {
+          const box = el('div', 'ss-tab'); host.appendChild(box);
+          const part = Object.assign({}, score, { bars: score.bars.slice(scoreBar, scoreBar + n).map((b) => ({ events: b.events })) });
+          try { S.draw(box, part, 'tab', { names: false, width: Math.max(460, Math.min(900, 140 + n * 190)) }); } catch (e) { box.textContent = 'Tablature non affichée : ' + e.message; }
+        }
+        scoreBar += n; return;
+      }
       const how = patternText(named ? sectionFromModel(sec) : whole);
       const head = el('div', 'ss-part');
       head.appendChild(el('span', '', sec.name ? '[' + sec.name + ']' : 'Rythme'));
@@ -388,7 +401,7 @@
         const row = el('div', 'ss-line');
         C.parseChordText(line).bars.forEach((chords) => {
           const names = chords.filter((c) => !c.held).map((c) => C.transposeChord(c, state.transpose || 0).label);
-          let words = lyrics[bar++] || '';
+          let words = lyrics[bar++] || ''; scoreBar++;
           const cut = /-$/.test(words) && !/ -$/.test(words); // mot coupé par le changement de mesure : la suite se colle
           if (cut) words = words.slice(0, -1);
           // Les repères « ^ » placent chaque accord sur sa syllabe ; un texte avant le premier repère se chante avant l'accord.
@@ -443,7 +456,7 @@
     } else state[{ names: 'scoreNames', diagrams: 'scoreDiagrams', neck: 'scoreNeck', solfege: 'scoreSolfege' }[k]] = !on[k];
     saveDraft(); drawScore();
   }));
-  function scoreOpts() { return { diagrams: state.scoreDiagrams, names: state.scoreNames !== false, solfege: !!state.scoreSolfege, lyrics: C.parseLyrics(state.lyrics) }; }
+  function scoreOpts() { return { diagrams: state.scoreDiagrams, names: state.scoreNames !== false, solfege: !!state.scoreSolfege, lyrics: score ? C.lyricsFor(score, state.lyrics) : [] }; }
 
   /* Position des doigts d'un accord de la partition : au survol à la souris, au toucher sur un écran tactile. */
   const pop = $('chord-pop'); let popFor = null;
@@ -538,8 +551,14 @@
     const sections = songSections();
     const view = $('grid-view'); view.innerHTML = '';
     sections.forEach((sec) => {
-      const parsed = C.parseChordText(sec.chords);
       if (sec.name) { const h = document.createElement('div'); h.className = 'grid-name'; h.textContent = sec.name; view.appendChild(h); }
+      const tab = tabOf(sec);
+      if (tab) { // partie en tablature : pas de cases d'accords
+        const note = document.createElement('div'); note.className = 'grid-tab' + (tab.problem ? ' warn' : '');
+        note.textContent = tab.problem ? 'Tablature : ' + tab.problem : 'Tablature · ' + tab.bars.length + ' mesure' + (tab.bars.length > 1 ? 's' : '');
+        view.appendChild(note); return;
+      }
+      const parsed = C.parseChordText(sec.chords);
       const row = document.createElement('div'); row.className = 'grid-bars';
       parsed.bars.forEach((bar) => {
         // Chaque accord occupe dans la case une largeur proportionnelle à sa durée.
@@ -555,8 +574,8 @@
       });
       view.appendChild(row);
     });
-    const names = [...new Set(sections.map((s) => s.name))];
-    const several = sections.length > 1 || sections.some((sec) => sec.name);
+    const names = [...new Set(sections.filter((sec) => !tabOf(sec)).map((s) => s.name))]; // une tablature n'a pas de motif à choisir
+    const several = names.length > 0 && (sections.length > 1 || sections.some((sec) => sec.name));
     $('parts').hidden = !several;
     const box = $('grid-models'); box.innerHTML = '';
     if (!several) return;
@@ -678,12 +697,19 @@
   $('pal-source').addEventListener('change', () => { state.palette = $('pal-source').value; saveDraft(); drawPalette(); });
   $('pal-undo').addEventListener('click', () => { if (!palHistory.length) { toast('Rien à annuler'); return; } pal = null; setChords(palHistory.pop()); });
   $('pal-part').addEventListener('change', () => {
-    const name = $('pal-part').value; $('pal-part').value = '';
+    let name = $('pal-part').value; $('pal-part').value = '';
     if (!name) return;
     palHistory.push(state.chords); pal = null;
     const base = state.chords.replace(/\s+$/, '');
-    setChords((base ? base + '\n\n' : '') + '[' + name + ']\n');
+    let body = '';
+    if (/^tab:/.test(name)) { // intro ou solo : un modèle de tablature vide, deux mesures à remplir
+      name = name.slice(4);
+      const t = C.TUNINGS[state.tuning]; const units = C.METERS[state.meter].units;
+      body = t.names.map((x, i) => (i === t.names.length - 1 && t.names.length > 4 ? x.toLowerCase() : x)).reverse().map((x) => x.padEnd(2) + '|' + '-'.repeat(units) + '|' + '-'.repeat(units) + '|').join('\n') + '\n';
+    }
+    setChords((base ? base + '\n\n' : '') + '[' + name + ']\n' + body);
     $('chords').focus();
+    if (body) toast('Remplace les tirets par les numéros de case : ' + C.METERS[state.meter].units + ' caractères par mesure');
   });
 
   /* ---------- lecture ---------- */
@@ -702,7 +728,7 @@
   if (D) { $('share').textContent = 'Exporter .txt'; }
   $('share').addEventListener('click', async () => {
     if (!score) return;
-    const text = C.scoreToText(Object.assign({}, score, { title: state.title, lyrics: C.parseLyrics(state.lyrics) }));
+    const text = C.scoreToText(Object.assign({}, score, { title: state.title, lyrics: C.lyricsFor(score, state.lyrics) }));
     if (D) {
       try { const p = await D.saveText(state.title || 'Tablature', text); if (p) toast('Enregistré : ' + p); }
       catch (e) { toast('Écriture impossible : ' + errText(e)); }
@@ -845,7 +871,7 @@
     const save = binarySaver();
     if (!save) { toast('Pour enregistrer des fichiers Guitar Pro, installe la dernière version de l\'application'); return; }
     try {
-      const bytes = await window.UkuGp.exportGp(score, { title: state.title.trim(), tempo: state.tempo, lyrics: C.parseLyrics(state.lyrics) });
+      const bytes = await window.UkuGp.exportGp(score, { title: state.title.trim(), tempo: state.tempo, lyrics: C.lyricsFor(score, state.lyrics) });
       const where = await save(videoName(), { blob: new Blob([bytes]), ext: 'gp', mime: 'application/x-gtp' });
       if (where) toast('Fichier Guitar Pro enregistré : ' + where);
     } catch (e) { toast('Export Guitar Pro impossible : ' + errText(e)); }
@@ -896,7 +922,7 @@
     if (!state.title.trim()) { toast('Donne un titre en haut de l\'écran'); $('title').focus(); return; }
     const item = currentSong();
     try {
-      await library.save(item, C.scoreToText(Object.assign({}, score, { title: item.title, lyrics: C.parseLyrics(state.lyrics) })));
+      await library.save(item, C.scoreToText(Object.assign({}, score, { title: item.title, lyrics: C.lyricsFor(score, state.lyrics) })));
       toast('Morceau enregistré');
     } catch (e) { toast('Enregistrement impossible : ' + errText(e)); }
   }
@@ -1022,7 +1048,7 @@
     try {
       const sc = song.imported || C.buildScore(Object.assign({}, defaults, song.cfg));
       const lyr = song.imported ? song.imported.lyricsText : song.cfg.lyrics;
-      await library.save(song, C.scoreToText(Object.assign({}, sc, { title: song.title, lyrics: C.parseLyrics(lyr) })));
+      await library.save(song, C.scoreToText(Object.assign({}, sc, { title: song.title, lyrics: C.lyricsFor(sc, lyr) })));
       toast('Ajouté à tes morceaux : ' + song.title);
     } catch (e) { toast('Enregistrement impossible : ' + errText(e)); }
     openSong(song);
@@ -1178,7 +1204,7 @@
     const found = C.findChords(text, { meter: state.meter, tuning: state.tuning });
     const el = $('import-detect'); const btn = $('transform');
     $('chord-panel').hidden = true;
-    btn.hidden = lastDetect.type !== 'tab';
+    btn.hidden = lastDetect.type !== 'tab'; $('tab-add').hidden = lastDetect.type !== 'tab';
     const isSong = lastDetect.type === 'song';
     $('use-song').hidden = !isSong; $('song-note').hidden = !isSong;
     if (isSong) {
@@ -1212,6 +1238,19 @@
       state.lyrics = ''; saveDraft();
       goto('score');
     }
+  });
+  $('tab-to-grid').addEventListener('click', () => {
+    detect();
+    if (lastDetect.type !== 'tab') return;
+    const n = C.stringCount(lastDetect.score.tuning);
+    if (n !== N()) { toast('Cette tablature a ' + n + ' lignes : choisis d\'abord ' + (n === 6 ? 'la guitare' : 'le ukulélé')); return; }
+    const lines = C.findTabBlocks($('import-text').value).filter((b) => b.length === n).map((b) => b.join('\n')).join('\n\n');
+    const name = $('tab-part').value || 'Intro';
+    const rest = state.chords.trim();
+    // Une intro se place en tête ; les autres parties à la suite.
+    state.chords = name === 'Intro' ? '[' + name + ']\n' + lines + (rest ? '\n\n' + rest : '') : (rest ? rest + '\n\n' : '') + '[' + name + ']\n' + lines;
+    $('chords').value = state.chords; checkChords(); drawGridView(); saveDraft();
+    goto('grid'); toast('Tablature ajoutée à la grille, partie « ' + name + ' »');
   });
   $('use-song').addEventListener('click', () => {
     detect();

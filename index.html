@@ -38,7 +38,7 @@
     <label class="field">
       <span class="lbl">Grille d'accords</span>
       <textarea id="chords" class="mono" rows="5" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="[Couplet]&#10;Am F | C G&#10;&#10;[Refrain]&#10;F | C | G | G"></textarea>
-      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>| Am - F C |</code> : le tiret prolonge l'accord, ici Am une demi-mesure puis F et C un quart chacun. <code>x2</code> en fin de ligne répète. <code>[Couplet]</code> ouvre une partie. <code>C@0007</code> impose une position précise, corde par corde de la grave à l'aiguë. Do Ré Mi… acceptés.</span>
+      <span class="hint">Un accord par mesure, ou <code>Am F | C G</code> pour en mettre deux. <code>| Am - F C |</code> : le tiret prolonge l'accord, ici Am une demi-mesure puis F et C un quart chacun. <code>x2</code> en fin de ligne répète. <code>[Couplet]</code> ouvre une partie. <code>C@0007</code> impose une position précise, corde par corde de la grave à l'aiguë. Do Ré Mi… acceptés. Une partie peut aussi s'écrire en tablature (intro, solo) : « Nouvelle partie… » en pose le modèle.</span>
     </label>
     <p id="chord-msg" class="msg" hidden></p>
     <div id="grid-view" class="grid-view"></div>
@@ -67,7 +67,7 @@
         <div id="pal-chords" class="diagrams wrap"></div>
         <div class="pal-actions">
           <button type="button" id="pal-undo" class="btn" title="Retire le dernier accord ajouté">Annuler</button>
-          <select id="pal-part" aria-label="Ouvrir une nouvelle partie"><option value="">Nouvelle partie…</option><option>Intro</option><option>Couplet</option><option>Refrain</option><option>Pont</option><option>Final</option></select>
+          <select id="pal-part" aria-label="Ouvrir une nouvelle partie"><option value="">Nouvelle partie…</option><option value="tab:Intro">Intro en tablature</option><option value="tab:Solo">Solo en tablature</option><option>Intro</option><option>Couplet</option><option>Refrain</option><option>Pont</option><option>Final</option></select>
         </div>
       </aside>
     </div>
@@ -187,6 +187,11 @@
         <button type="button" id="use-chords" class="cta">Générer avec ces accords et mon motif</button>
       </div>
       <button type="button" id="transform" class="btn">Transformer en partition</button>
+      <div id="tab-add" class="tab-add" hidden>
+        <span class="hint">ou l'ajouter au morceau en cours, comme partie :</span>
+        <select id="tab-part" aria-label="Nom de la partie"><option>Intro</option><option>Solo</option><option>Pont</option><option>Final</option></select>
+        <button type="button" id="tab-to-grid" class="btn">Ajouter à la grille</button>
+      </div>
     </div>
   </section>
 
