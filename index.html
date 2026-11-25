@@ -134,6 +134,7 @@
       <label><span class="lbl">Valeur d'un pas</span><select id="subdivision"><option value="8">Croche</option><option value="16">Double-croche</option></select></label>
       <label><span class="lbl" id="tuning-label">Accordage</span><select id="tuning"></select></label>
       <label><span class="lbl">Doigtés</span><select id="mode"><option value="easy">Les plus simples</option><option value="smooth">Le moins de déplacement</option><option value="position">Autour d'une case</option></select></label>
+      <label id="simple-wrap" class="check simple-check" hidden><input type="checkbox" id="simple"> Accords très simplifiés (2 ou 3 doigts)</label>
       <label id="position-wrap" hidden><span class="lbl">Case visée</span><input id="position" type="number" min="0" max="12" value="5" inputmode="numeric"></label>
     </div>
     <button type="button" id="generate" class="cta">Générer la partition</button>
@@ -221,6 +222,7 @@
       </div>
       <p id="score-msg" class="msg warn" hidden></p>
       <div id="diagrams" class="diagrams"></div>
+      <button type="button" id="simple-toggle" class="btn simple-toggle no-print" aria-pressed="false" hidden>Accords très simplifiés</button>
       <p id="diagram-hint" class="hint">Touche un accord pour choisir un autre doigté. Dans la partition, survole ou touche un accord pour voir la position des doigts.</p>
       <div id="score" class="score"></div>
       <div id="songsheet" class="songsheet score" hidden></div>

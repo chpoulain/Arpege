@@ -225,3 +225,7 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .ss-tab svg{display:block;max-width:100%;height:auto}
 .tab-add{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 .tab-add select{width:auto;flex:1;min-width:120px}
+
+.simple-toggle{margin:4px 0 2px;min-height:38px;padding:5px 14px;font-size:.88rem}
+.simple-toggle.on{background:var(--accent);color:var(--accent-ink)}
+.simple-check{align-self:end;min-height:44px}

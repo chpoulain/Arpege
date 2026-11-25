@@ -178,7 +178,7 @@
     $('chords-title').textContent = 'Accords de ' + (instrument() === 'guitar' ? 'guitare' : 'ukulélé');
     $('chords-tuning').textContent = 'Accordage : ' + t.label + '. Touche un accord pour voir les doigts, l\'écouter et choisir une autre position.';
     const tabs = $('chords-roots'); tabs.innerHTML = '';
-    [['first', 'Les premiers'], ['mine', 'Mes accords']].concat(ROOTS.map((r) => [r, r.replace('#', '♯').replace(/b$/, '♭')])).forEach(([value, text]) => {
+    [['first', 'Les premiers']].concat(C.TUNINGS[tuningKey].family === 'guitar' ? [['simple', 'Très simples']] : [], [['mine', 'Mes accords']], ROOTS.map((r) => [r, r.replace('#', '♯').replace(/b$/, '♭')])).forEach(([value, text]) => {
       const b = node('button', value === shown ? 'on' : '', text); b.type = 'button';
       b.setAttribute('aria-pressed', value === shown);
       if (ROOT_FR[value]) b.title = ROOT_FR[value];
@@ -186,6 +186,16 @@
       tabs.appendChild(b);
     });
     const box = $('chords-list'); box.innerHTML = '';
+    if (shown === 'simple' && C.TUNINGS[tuningKey].family !== 'guitar') shown = 'first';
+    if (shown === 'simple') { // les remplaçants à deux ou trois doigts, avec l'accord qu'ils remplacent
+      Object.entries(C.SIMPLE_GUITAR).forEach(([from, [label, shape]]) => {
+        const c = card(label, { label, shape });
+        const names = { 'A#': 'Bb' }; const src = names[from] || from;
+        if (src !== label) c.insertBefore(node('small', 'replaces', 'à la place de ' + src), c.children[2]);
+        box.appendChild(c);
+      });
+      return;
+    }
     if (shown === 'mine') {
       const list = mine.here();
       list.forEach((x) => box.appendChild(card(x.label, x)));

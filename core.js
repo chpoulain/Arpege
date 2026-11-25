@@ -389,6 +389,22 @@
     return token === '7' ? order[order.length - 1] : order[0];
   }
 
+  /* Version très simple pour la guitare : un accord voisin à deux ou trois doigts remplace l'accord écrit
+     (Do devient Do majeur 7, La devient La sus2…). La couleur change un peu, la main gauche beaucoup. */
+  const SIMPLE_GUITAR = {
+    C: ['C7M', 'x32000'], D: ['Dsus2', 'xx0230'], F: ['F7M', 'xx3210'], G: ['G6', '320000'], A: ['Asus2', 'x02200'], B: ['B7sus4', 'x22200'], 'A#': ['Bb6', 'xx3333'],
+    Am: ['Am7', 'x02010'], Dm: ['Dm7', 'xx0211'], Bm: ['Bm7', 'x20202'], 'F#m': ['F#m7', 'xx2222'], Gm: ['Gm7', 'xx3333'], Fm: ['Fm7', 'xx1111'], Cm: ['Cm', 'x3101x'],
+    B7: ['B7', 'x2120x'], Em7: ['Em7', '020000'], F7: ['F7', 'xx1211'],
+  };
+  /* Renvoie l'accord simplifié (avec sa position), ou l'accord lui-même s'il n'a pas de version simple ou si sa position est déjà écrite. */
+  function simplifyChord(chord, tuningKey) {
+    if (!chord || chord.held || chord.pin || tuningOf(tuningKey).family !== 'guitar') return chord;
+    const hit = SIMPLE_GUITAR[SHARP[chord.root] + chord.quality];
+    if (!hit) return chord;
+    const c = parseChord(hit[0]);
+    return Object.assign(c, { pin: hit[1], simplified: chord.label });
+  }
+
   /* cfg.sections, s'il existe, donne à chaque partie ses accords et son motif ; sinon tout le morceau est une seule partie. */
   function buildScore(cfg) {
     const meter = METERS[cfg.meter] || METERS['4/4'];
@@ -413,7 +429,7 @@
     if (sections.some((s) => !s.pat.steps.length)) problems.push('Le motif est vide.');
     const score = { title: cfg.title || '', meter: cfg.meter in METERS ? cfg.meter : '4/4', tuning: tuningKey, bars: [], voicings: [], problems, source: 'generated' };
     if (!some || sections.some((s) => !s.pat.steps.length)) return score;
-    sections.forEach((s) => { s.bars = s.parsed.bars.map((b) => b.map((c) => (c.held ? { held: true } : transposeChord(c, cfg.transpose || 0)))); });
+    sections.forEach((s) => { s.bars = s.parsed.bars.map((b) => b.map((c) => (c.held ? { held: true } : (cfg.simple ? simplifyChord(transposeChord(c, cfg.transpose || 0), tuningKey) : transposeChord(c, cfg.transpose || 0))))); });
     const flat = sections.flatMap((s) => s.bars.flat().filter((c) => !c.held));
     let voicings;
     try { voicings = chooseVoicings(flat, { mode: cfg.mode, position: cfg.position, tuning: tuningKey, overrides: cfg.overrides }); }
@@ -506,7 +522,7 @@
   }
 
   /* ---------- Envoi d'un morceau : lien ou fichier .arpege ---------- */
-  const SHARE_CFG = ['chords', 'pattern', 'patternKind', 'meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position', 'overrides', 'tempo', 'sections', 'lyrics', 'scoreDiagrams', 'scoreNeck', 'scoreNames', 'scoreSolfege'];
+  const SHARE_CFG = ['chords', 'pattern', 'patternKind', 'meter', 'subdivision', 'tuning', 'transpose', 'mode', 'position', 'overrides', 'tempo', 'sections', 'lyrics', 'scoreDiagrams', 'scoreNeck', 'scoreNames', 'scoreSolfege', 'simple'];
   function shareSong(song) {
     const out = { app: 'arpege', v: 1, title: song.title };
     if (song.imported) {
@@ -535,7 +551,7 @@
         meter: own(METERS, c.meter) ? c.meter : '4/4', subdivision: sub(c.subdivision), tuning: own(TUNINGS, c.tuning) ? c.tuning : 'standard',
         transpose: clamp(c.transpose, -6, 6, 0), mode: ['easy', 'smooth', 'position'].includes(c.mode) ? c.mode : 'easy',
         position: clamp(c.position, 0, 12, 5), tempo: clamp(c.tempo, 40, 180, 80), lyrics: clip(c.lyrics, 20000),
-        scoreDiagrams: c.scoreDiagrams === true, scoreNeck: c.scoreNeck === true, scoreNames: c.scoreNames !== false, scoreSolfege: c.scoreSolfege === true, overrides: {}, sections: null,
+        simple: c.simple === true, scoreDiagrams: c.scoreDiagrams === true, scoreNeck: c.scoreNeck === true, scoreNames: c.scoreNames !== false, scoreSolfege: c.scoreSolfege === true, overrides: {}, sections: null,
       };
       if (c.overrides && typeof c.overrides === 'object') {
         Object.entries(c.overrides).slice(0, 100).forEach(([k, v]) => { if (k.length <= 20 && typeof v === 'string' && /^([0-9a-z]{4}|[0-9a-wx]{6})$/.test(v)) cfg.overrides[k] = v; });
@@ -1378,7 +1394,7 @@
     return u;
   }
 
-  const api = { lyricsFor, sectionTab, parseSongSheet, nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
+  const api = { simplifyChord, SIMPLE_GUITAR, lyricsFor, sectionTab, parseSongSheet, nameChord, noteName, TUNINGS, INSTRUMENTS, stringCount, fretText, COMMON_GUITAR, strumSymbol, METERS, QUALITY, COMMON, parseChord, parseChordText, voicingsFor, chooseVoicings, generateGrid, parseGridText, romanToChord, GRID_STYLES, parsePattern, parseStrumToken, strumToText, beatLabel, stringForDegree, buildScore, eventAt, parseLyrics, printBarsPerLine, fixedLines, shareSong, readSharedSong, packSong, unpackSong, songLinkData, scoreToText, parseTabText, extractChordSheet, detectContent, findChords, detectChords, parseMusicXml, midiOf, pluckWave, spell, splitDuration, directLink, transposeChord, findTabBlocks };
   global.UkuCore = api;
   if (typeof module !== 'undefined') module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);

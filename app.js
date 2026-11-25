@@ -49,7 +49,7 @@
     { name: 'Berceuse (6/8)', kind: 'strum', p: 'B - h b - h' },
   ];
 
-  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreMode: 'score', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
+  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', simple: false, scoreMode: 'score', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
   const state = Object.assign({}, defaults, store.get('draft', {}));
   if (!Object.prototype.hasOwnProperty.call(C.TUNINGS, state.tuning)) state.tuning = 'standard';
   /* L'instrument se déduit de l'accordage : rien d'autre à enregistrer dans un morceau. */
@@ -144,7 +144,7 @@
     $('tempo').value = state.tempo; tempoLabel();
     $('position-wrap').hidden = state.mode !== 'position';
     document.querySelectorAll('[data-kind]').forEach((b) => b.classList.toggle('on', b.dataset.kind === state.patternKind));
-    kindHint(); drawGrid(); checkChords(); drawGridPage(); fillDurations(); drawPalette();
+    kindHint(); drawGrid(); checkChords(); drawGridPage(); fillDurations(); drawPalette(); syncSimple();
   }
   function kindHint() {
     $('kind-hint').textContent = state.patternKind === 'strum'
@@ -345,7 +345,7 @@
     if (showProblems) setMsg($('score-msg'), score.problems.join(' · '), 'warn'); else setMsg($('score-msg'), '');
     if (!score) return;
     drawDiagrams();
-    syncShow();
+    syncShow(); syncSimple();
     // Une fois dans la partition, les diagrammes ne sont pas imprimés une seconde fois au-dessus.
     $('diagrams').classList.toggle('no-print', state.scoreDiagrams);
     if ($('lyrics').value !== state.lyrics) $('lyrics').value = state.lyrics;
@@ -400,7 +400,7 @@
       sec.chords.split(/\r?\n/).filter((l) => l.trim()).forEach((line) => {
         const row = el('div', 'ss-line');
         C.parseChordText(line).bars.forEach((chords) => {
-          const names = chords.filter((c) => !c.held).map((c) => C.transposeChord(c, state.transpose || 0).label);
+          const names = chords.filter((c) => !c.held).map((c) => { const tc = C.transposeChord(c, state.transpose || 0); return (state.simple ? C.simplifyChord(tc, state.tuning) : tc).label; });
           let words = lyrics[bar++] || ''; scoreBar++;
           const cut = /-$/.test(words) && !/ -$/.test(words); // mot coupé par le changement de mesure : la suite se colle
           if (cut) words = words.slice(0, -1);
@@ -436,6 +436,23 @@
       box.appendChild(b);
     });
   }
+  /* Accords très simplifiés : à la guitare seulement, et pour un morceau fait d'accords. */
+  function syncSimple() {
+    const guitar = C.TUNINGS[state.tuning].family === 'guitar';
+    $('simple-wrap').hidden = !guitar; $('simple').checked = !!state.simple;
+    const b = $('simple-toggle'); b.hidden = !guitar || !!importedScore || !(score && score.bars.length);
+    b.classList.toggle('on', !!state.simple); b.setAttribute('aria-pressed', !!state.simple);
+    b.textContent = state.simple ? 'Accords très simplifiés : oui' : 'Accords très simplifiés';
+  }
+  function setSimple(on) {
+    state.simple = !!on; saveDraft();
+    if (score && !importedScore && score.bars.length) { score = C.buildScore(state); if (!$('tab-score').hidden) drawScore(); }
+    syncSimple();
+    if (on) toast('Accords remplacés par leur version à 2 ou 3 doigts');
+  }
+  $('simple-toggle').addEventListener('click', () => setSimple(!state.simple));
+  $('simple').addEventListener('change', () => setSimple($('simple').checked));
+
   /* Ce que la partition affiche : portée, tablature, noms d'accords, diagrammes, manche, solfège. */
   const shown = () => ({ staff: state.view !== 'tab', tab: state.view !== 'notation', names: state.scoreNames !== false, diagrams: !!state.scoreDiagrams, neck: !!state.scoreNeck, solfege: !!state.scoreSolfege });
   function syncShow() {
