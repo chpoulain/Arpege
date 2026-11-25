@@ -392,7 +392,7 @@
   /* Version très simple pour la guitare : un accord voisin à deux ou trois doigts remplace l'accord écrit
      (Do devient Do majeur 7, La devient La sus2…). La couleur change un peu, la main gauche beaucoup. */
   const SIMPLE_GUITAR = {
-    C: ['C7M', 'x32000'], D: ['Dsus2', 'xx0230'], F: ['F7M', 'xx3210'], G: ['G6', '320000'], A: ['Asus2', 'x02200'], B: ['B7sus4', 'x22200'], 'A#': ['Bb6', 'xx3333'],
+    C: ['C7M', 'x32000'], D: ['Dsus2', 'xx0230'], E: ['E7', '020100'], F: ['F7M', 'xx3210'], G: ['G6', '320000'], A: ['Asus2', 'x02200'], B: ['B7sus4', 'x22200'], 'A#': ['Bb6', 'xx3333'],
     Am: ['Am7', 'x02010'], Dm: ['Dm7', 'xx0211'], Bm: ['Bm7', 'x20202'], 'F#m': ['F#m7', 'xx2222'], Gm: ['Gm7', 'xx3333'], Fm: ['Fm7', 'xx1111'], Cm: ['Cm', 'x3101x'],
     B7: ['B7', 'x2120x'], Em7: ['Em7', '020000'], F7: ['F7', 'xx1211'],
   };
