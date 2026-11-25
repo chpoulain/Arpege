@@ -196,7 +196,14 @@
       <button type="button" class="btn" data-goto="grid">Saisir des accords</button>
     </div>
     <div id="score-area" hidden>
-      <div class="toolbar no-print">
+      <div id="view-mode-row" class="row-between toolbar no-print">
+        <span class="lbl">Présentation</span>
+        <div id="view-mode" class="seg" role="group" aria-label="Présentation du morceau">
+          <button type="button" data-mode="score">Partition</button>
+          <button type="button" data-mode="sheet">Feuille de chant</button>
+        </div>
+      </div>
+      <div id="show-row" class="toolbar no-print">
         <span class="lbl">Afficher</span>
         <div class="chips show" role="group" aria-label="Ce que la partition affiche">
           <button type="button" data-show="staff" title="Les notes sur la portée">Portée</button>
@@ -211,6 +218,7 @@
       <div id="diagrams" class="diagrams"></div>
       <p id="diagram-hint" class="hint">Touche un accord pour choisir un autre doigté. Dans la partition, survole ou touche un accord pour voir la position des doigts.</p>
       <div id="score" class="score"></div>
+      <div id="songsheet" class="songsheet score" hidden></div>
       <details id="lyrics-box" class="lyrics-box no-print">
         <summary>Paroles</summary>
         <textarea id="lyrics" rows="6" spellcheck="true" aria-describedby="lyrics-hint" placeholder="Au clair de la | lune, mon ami | Pierrot"></textarea>

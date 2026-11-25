@@ -879,14 +879,15 @@
     if (t === '/' || t === '%') return { repeat: true };
     const frets = /\[([0-9xX]{4,6})\]/.exec(t);
     let pin = null;
-    if (frets) { if (frets[1].length === strings) pin = frets[1].toLowerCase(); t = t.replace(frets[0], ''); }
+    let other = null; // cases écrites pour un autre instrument (ukulélé lu à la guitare) : elles donnent le nom, pas la position
+    if (frets) { if (frets[1].length === strings) pin = frets[1].toLowerCase(); else other = frets[1].toLowerCase(); t = t.replace(frets[0], ''); }
     const again = /\/$/.test(t); if (again) t = t.slice(0, -1);
     t = t.replace(/[|_]+/g, '');
     const half = /\*/.test(t); t = t.replace(/\*/g, '');
-    if (!t) return pin ? { pin, again, half } : null;
+    if (!t) return pin || other ? { pin, other, again, half } : null;
     const c = parseChord(t);
     if (c) return { label: t, pin, again, half };
-    return pin ? { pin, again, half } : { word: true }; // nom inconnu mais cases données : les cases suffisent
+    return pin || other ? { pin, other, again, half } : { word: true }; // nom inconnu mais cases données : les cases suffisent
   }
   /* Deux colonnes sur la page : si beaucoup de lignes reprennent à la même colonne après un grand blanc, la colonne de droite est lue à la suite. */
   function splitColumns(lines) {
@@ -912,19 +913,22 @@
     const section = (name) => { cur = { name, lines: [] }; out.sections.push(cur); };
     const tokensOf = (line) => { const list = []; const re = /\S+/g; let m; while ((m = re.exec(line))) list.push({ col: m.index, raw: m[0] }); return list; };
     const readChords = (line, offset) => {
-      const toks = tokensOf(line).map((t) => Object.assign(t, { col: t.col + (offset || 0), k: sheetToken(t.raw, strings) }));
-      const chords = toks.filter((t) => t.k && (t.k.label || t.k.pin)); const words = toks.filter((t) => t.k && t.k.word);
+      // Une remarque entre parenthèses sur la ligne d'accords (« (| = jouer juste ↓) ») n'en fait pas une ligne de paroles.
+      const bare = line.replace(/\([^)]*\)/g, (m) => ' '.repeat(m.length));
+      const toks = tokensOf(bare).map((t) => Object.assign(t, { col: t.col + (offset || 0), k: sheetToken(t.raw, strings) }));
+      const chords = toks.filter((t) => t.k && (t.k.label || t.k.pin || t.k.other)); const words = toks.filter((t) => t.k && t.k.word);
       if (!chords.length || words.length > chords.length) return null;
       words.forEach((w) => { if (!/^[(\[]|^[a-g]\d|^ral|^x\d/i.test(w.raw) && !out.ignored.includes(w.raw)) out.ignored.push(w.raw); });
       const bars = []; let halfOpen = null;
       toks.forEach((t) => {
         const k = t.k; if (!k) return;
         if (k.repeat) { const last = bars[bars.length - 1]; if (last) bars.push({ col: t.col, tokens: [last.tokens[last.tokens.length - 1]] }); halfOpen = null; return; }
-        if (!k.label && !k.pin) return;
+        if (!k.label && !k.pin && !k.other) return;
         let label = k.label;
         if (!label) { // cases seules : on retrouve le nom de l'accord
-          const named = nameChord(k.pin.split('').map((c) => (c === 'x' ? -1 : +c)), tuningKey);
-          if (!named.label) { if (!out.ignored.includes('[' + k.pin + ']')) out.ignored.push('[' + k.pin + ']'); return; }
+          const shape = k.pin || k.other;
+          const named = nameChord(shape.split('').map((c) => (c === 'x' ? -1 : +c)), k.pin ? tuningKey : (shape.length === 6 ? 'guitar' : 'standard'));
+          if (!named.label) { if (!out.ignored.includes('[' + shape + ']')) out.ignored.push('[' + shape + ']'); return; }
           label = named.label.split('/')[0];
         }
         const token = label + (k.pin ? '@' + k.pin : '');

@@ -49,7 +49,7 @@
     { name: 'Berceuse (6/8)', kind: 'strum', p: 'B - h b - h' },
   ];
 
-  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
+  const defaults = { title: '', chords: 'Am F C G', pattern: '4 3 2 1 2 3 2 3', patternKind: 'strings', meter: '4/4', subdivision: '8', tuning: 'standard', transpose: 0, mode: 'easy', position: 5, overrides: {}, tempo: 80, view: 'both', scoreMode: 'score', scoreDiagrams: false, scoreNeck: false, scoreNames: true, scoreSolfege: false, lyrics: '', sections: null, grid: { key: 'C', mode: 'major', style: 'pop', form: 'verseChorus', bars: 4, perBar: 1, seed: 0, text: '', models: {} } };
   const state = Object.assign({}, defaults, store.get('draft', {}));
   if (!Object.prototype.hasOwnProperty.call(C.TUNINGS, state.tuning)) state.tuning = 'standard';
   /* L'instrument se déduit de l'accordage : rien d'autre à enregistrer dans un morceau. */
@@ -348,8 +348,56 @@
     $('diagrams').classList.toggle('no-print', state.scoreDiagrams);
     if ($('lyrics').value !== state.lyrics) $('lyrics').value = state.lyrics;
     if (state.lyrics.trim()) $('lyrics-box').open = true;
+    // Feuille de chant : pour un morceau fait d'accords (pas pour une tablature importée, qui n'a pas de grille).
+    const canSheet = !importedScore && !!has;
+    const sheet = canSheet && state.scoreMode === 'sheet';
+    $('view-mode-row').hidden = !canSheet;
+    document.querySelectorAll('[data-mode]').forEach((b) => { const on = (b.dataset.mode === 'sheet') === sheet; b.classList.toggle('on', on); b.setAttribute('aria-pressed', on); });
+    $('show-row').hidden = sheet; $('score').hidden = sheet; $('songsheet').hidden = !sheet;
+    if (sheet) { buildSongSheet($('songsheet')); return; }
     try { S.render($('score'), score, state.view, scoreOpts()); }
     catch (e) { console.error(e); setMsg($('score-msg'), 'Gravure impossible : ' + e.message, 'err'); }
+  }
+  document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => { state.scoreMode = b.dataset.mode; saveDraft(); drawScore(); }));
+
+  /* ---------- feuille de chant : les accords au-dessus des paroles ---------- */
+  /* Rythme ou arpège d'une partie, écrit comme sur une feuille : ↓ ↑ pour les coups, le numéro de la corde pincée, · pour un silence. */
+  function patternText(sec) {
+    const n = C.stringCount(state.tuning);
+    if (sec.patternKind !== 'strum') return (sec.patternKind === 'degrees' ? 'notes ' : 'cordes ') + sec.pattern;
+    return C.parsePattern(sec.pattern, 'strum', n).steps.map((st) => (st.type === 'rest' ? '·' : st.type === 'pick' ? st.strings.join('+') : C.strumSymbol(st, n))).join(' ');
+  }
+  function buildSongSheet(host) {
+    host.innerHTML = '';
+    const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+    const lyrics = C.parseLyrics(state.lyrics); let bar = 0;
+    const t = C.TUNINGS[state.tuning];
+    host.appendChild(el('p', 'ss-meta', (t.instrument === 'guitar' ? 'Guitare' : 'Ukulélé') + (t.capo ? ', capo ' + t.capo : state.tuning !== C.INSTRUMENTS[t.instrument].tuning ? ', ' + t.label : '') + ' · ' + state.meter + ' · ' + state.tempo + ' à la noire'));
+    const whole = { pattern: state.pattern, patternKind: state.patternKind };
+    const sections = songSections();
+    const named = sections.length > 1 || sections.some((sec) => sec.name);
+    let lastPattern = null;
+    sections.forEach((sec) => {
+      const how = patternText(named ? sectionFromModel(sec) : whole);
+      const head = el('div', 'ss-part');
+      head.appendChild(el('span', '', sec.name ? '[' + sec.name + ']' : 'Rythme'));
+      if (how !== lastPattern) head.appendChild(el('small', '', how)); // le rythme n'est répété que s'il change
+      lastPattern = how;
+      if (sec.name || how) host.appendChild(head);
+      sec.chords.split(/\r?\n/).filter((l) => l.trim()).forEach((line) => {
+        const row = el('div', 'ss-line');
+        C.parseChordText(line).bars.forEach((chords) => {
+          const names = chords.filter((c) => !c.held).map((c) => C.transposeChord(c, state.transpose || 0).label).join(' ');
+          const words = lyrics[bar++] || '';
+          const cut = /-$/.test(words) && !/ -$/.test(words); // mot coupé par le changement d'accord : la suite se colle
+          const cell = el('span', 'ss-cell' + (cut ? ' join' : '') + (words ? '' : ' bare'));
+          cell.appendChild(el('span', 'ss-ch', names)); cell.appendChild(el('span', 'ss-ly', cut ? words.slice(0, -1) : words));
+          row.appendChild(cell);
+        });
+        host.appendChild(row);
+      });
+    });
+    host.setAttribute('role', 'document'); host.setAttribute('aria-label', 'Feuille de chant');
   }
   function drawDiagrams() {
     const box = $('diagrams'); box.innerHTML = '';
@@ -413,7 +461,7 @@
   $('lyrics').addEventListener('input', () => {
     state.lyrics = $('lyrics').value; saveDraft();
     clearTimeout(lyricsT);
-    lyricsT = setTimeout(() => { if (score && score.bars.length) S.render($('score'), score, state.view, scoreOpts()); }, 250);
+    lyricsT = setTimeout(() => { if (score && score.bars.length) { if (!$('songsheet').hidden) buildSongSheet($('songsheet')); else S.render($('score'), score, state.view, scoreOpts()); } }, 250);
   });
   let resizeT;
   window.addEventListener('resize', () => { clearTimeout(resizeT); resizeT = setTimeout(() => { if (!$('tab-score').hidden) drawScore(); }, 150); });
@@ -658,6 +706,16 @@
   function buildPrint() {
     const host = $('print-pages'); host.innerHTML = '';
     if (!score || !score.bars.length) return;
+    if (!importedScore && state.scoreMode === 'sheet') { // feuille de chant : titre, diagrammes, puis le texte qui coule de page en page
+      const page = document.createElement('section'); page.className = 'sheet-print';
+      const h = document.createElement('h1'); h.textContent = state.title.trim() || 'Feuille de chant'; page.appendChild(h);
+      const row = document.createElement('div'); row.className = 'page-dias';
+      score.voicings.forEach((v) => { const d = document.createElement('div'); d.className = 'dia' + (state.scoreNeck ? ' neck' : ''); d.textContent = v.chord.label; d.appendChild(state.scoreNeck ? K.neckView(v.frets, score.tuning) : S.diagram(v.frets)); row.appendChild(d); });
+      page.appendChild(row);
+      const body = document.createElement('div'); body.className = 'songsheet'; buildSongSheet(body); page.appendChild(body);
+      host.appendChild(page);
+      return;
+    }
     const perLine = C.printBarsPerLine(score.meter);
     const all = C.fixedLines(score, perLine);
     const pages = [];
