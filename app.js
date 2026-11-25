@@ -370,7 +370,7 @@
   function buildSongSheet(host) {
     host.innerHTML = '';
     const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
-    const lyrics = C.parseLyrics(state.lyrics); let bar = 0;
+    const lyrics = C.parseLyrics(state.lyrics, true); let bar = 0;
     const t = C.TUNINGS[state.tuning];
     host.appendChild(el('p', 'ss-meta', (t.instrument === 'guitar' ? 'Guitare' : 'Ukulélé') + (t.capo ? ', capo ' + t.capo : state.tuning !== C.INSTRUMENTS[t.instrument].tuning ? ', ' + t.label : '') + ' · ' + state.meter + ' · ' + state.tempo + ' à la noire'));
     const whole = { pattern: state.pattern, patternKind: state.patternKind };
@@ -387,12 +387,23 @@
       sec.chords.split(/\r?\n/).filter((l) => l.trim()).forEach((line) => {
         const row = el('div', 'ss-line');
         C.parseChordText(line).bars.forEach((chords) => {
-          const names = chords.filter((c) => !c.held).map((c) => C.transposeChord(c, state.transpose || 0).label).join(' ');
-          const words = lyrics[bar++] || '';
-          const cut = /-$/.test(words) && !/ -$/.test(words); // mot coupé par le changement d'accord : la suite se colle
-          const cell = el('span', 'ss-cell' + (cut ? ' join' : '') + (words ? '' : ' bare'));
-          cell.appendChild(el('span', 'ss-ch', names)); cell.appendChild(el('span', 'ss-ly', cut ? words.slice(0, -1) : words));
-          row.appendChild(cell);
+          const names = chords.filter((c) => !c.held).map((c) => C.transposeChord(c, state.transpose || 0).label);
+          let words = lyrics[bar++] || '';
+          const cut = /-$/.test(words) && !/ -$/.test(words); // mot coupé par le changement de mesure : la suite se colle
+          if (cut) words = words.slice(0, -1);
+          // Les repères « ^ » placent chaque accord sur sa syllabe ; un texte avant le premier repère se chante avant l'accord.
+          const parts = words.split('^');
+          let cells;
+          if (parts.length === names.length + 1) cells = [['', parts[0]]].concat(names.map((n, i) => [n, parts[i + 1]]));
+          else if (parts.length === names.length) cells = names.map((n, i) => [n, parts[i]]);
+          else cells = [[names.join(' '), parts.join('')]];
+          cells = cells.filter(([n, w], i) => n || w || i === cells.length - 1);
+          cells.forEach(([name, text], i) => {
+            const last = i === cells.length - 1;
+            const cell = el('span', 'ss-cell' + (!last || cut ? ' join' : '') + (text.trim() ? '' : ' bare'));
+            cell.appendChild(el('span', 'ss-ch', name)); cell.appendChild(el('span', 'ss-ly', text));
+            row.appendChild(cell);
+          });
         });
         host.appendChild(row);
       });

@@ -208,7 +208,8 @@ button{font:inherit;color:inherit;cursor:pointer;touch-action:manipulation}
 .ss-part{font-family:system-ui,sans-serif;font-weight:700;font-size:.92rem;margin:14px 0 6px;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:baseline;break-after:avoid}
 .ss-part small{font-weight:400;color:var(--muted);font-family:ui-monospace,monospace}
 .ss-line{display:flex;flex-wrap:wrap;align-items:flex-end;margin-bottom:7px;break-inside:avoid}
-.ss-cell{display:inline-flex;flex-direction:column;padding-right:.6ch;min-width:3ch}
+.ss-cell{display:inline-flex;flex-direction:column;padding-right:.6ch}
+.ss-cell.bare{min-width:3ch}
 .ss-cell.join{padding-right:0}
 .ss-ch{font-weight:700;color:var(--accent);white-space:pre;min-height:1.25em;padding-right:1ch}
 .ss-ly{white-space:pre;min-height:1.25em}

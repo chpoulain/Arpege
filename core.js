@@ -463,7 +463,10 @@
   }
 
   /* Paroles : une ligne par mesure, ou plusieurs mesures séparées par « | ». Les titres [Couplet] et les lignes vides sont ignorés. */
-  function parseLyrics(text) {
+  /* « ^ » dans les paroles d'une mesure marque la syllabe où tombe un accord (feuille de chant) ; la partition ne l'affiche pas.
+     marks : garder ces repères. */
+  function parseLyrics(text, marks) {
+    if (!marks) text = String(text || '').replace(/ ?\^/g, (m) => (m[0] === ' ' ? ' ' : ''));
     const out = [];
     String(text || '').split(/\r?\n/).forEach((raw) => {
       const line = raw.trim();
@@ -922,7 +925,7 @@
       const bars = []; let halfOpen = null;
       toks.forEach((t) => {
         const k = t.k; if (!k) return;
-        if (k.repeat) { const last = bars[bars.length - 1]; if (last) bars.push({ col: t.col, tokens: [last.tokens[last.tokens.length - 1]] }); halfOpen = null; return; }
+        if (k.repeat) { const last = bars[bars.length - 1]; if (last) bars.push({ col: t.col, cols: [t.col], tokens: [last.tokens[last.tokens.length - 1]] }); halfOpen = null; return; }
         if (!k.label && !k.pin && !k.other) return;
         let label = k.label;
         if (!label) { // cases seules : on retrouve le nom de l'accord
@@ -932,10 +935,10 @@
           label = named.label.split('/')[0];
         }
         const token = label + (k.pin ? '@' + k.pin : '');
-        if (k.half && halfOpen) { halfOpen.tokens.push(token); halfOpen = null; } else {
-          const bar = { col: t.col, tokens: [token] }; bars.push(bar); halfOpen = k.half ? bar : null;
+        if (k.half && halfOpen) { halfOpen.tokens.push(token); halfOpen.cols.push(t.col); halfOpen = null; } else {
+          const bar = { col: t.col, cols: [t.col], tokens: [token] }; bars.push(bar); halfOpen = k.half ? bar : null;
         }
-        if (k.again) { bars.push({ col: t.col + t.raw.length, tokens: [token] }); halfOpen = null; }
+        if (k.again) { bars.push({ col: t.col + t.raw.length, cols: [t.col + t.raw.length], tokens: [token] }); halfOpen = null; }
       });
       return bars.length ? bars : null;
     };
@@ -961,7 +964,17 @@
         const cols = pending.map((b) => b.col);
         // Un accord qui tombe au milieu d'un mot le coupe : un tiret le signale.
         const cutWord = (c) => c !== undefined && c > 0 && c < line.length && /\S/.test(line[c - 1]) && /\S/.test(line[c]) && line[c - 1] !== '-';
-        const lyr = pending.map((b, i) => line.slice(i === 0 ? 0 : cols[i], i + 1 < cols.length ? cols[i + 1] : undefined).replace(/\s+/g, ' ').trim() + (cutWord(cols[i + 1]) ? '-' : ''));
+        // « ^ » garde la place de chaque accord dans les paroles de sa mesure : la syllabe sur laquelle il tombe.
+        const lyr = pending.map((b, i) => {
+          const start = i === 0 ? 0 : cols[i]; const end = i + 1 < cols.length ? cols[i + 1] : Math.max(line.length, start);
+          let seg = ''; let pos = start;
+          b.cols.forEach((c, j) => {
+            const at = Math.min(Math.max(c, start), end);
+            if (j > 0 || line.slice(start, at).trim()) { seg += line.slice(pos, at) + '^'; pos = at; }
+          });
+          seg += line.slice(pos, end);
+          return seg.replace(/\|/g, ' ').replace(/\s+/g, ' ').trim() + (cutWord(cols[i + 1]) ? '-' : '');
+        });
         cur.lines.push({ bars: pending.map((b) => b.tokens), lyrics: lyr }); pending = null; out.pairs++;
       } else if (!out.sections.length && !out.title) out.title = line.trim().replace(/\s{2,}.*$/, '').replace(/\s*\(?\b(19|20)\d\d\)?.*$/, '').replace(/\s+wiki$/i, '').slice(0, 80);
     }
